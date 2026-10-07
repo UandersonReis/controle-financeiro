@@ -1,12 +1,12 @@
-# Meu Financeiro — Web V19
+# Meu Financeiro — Web V20
 
-Correção estrutural do importador:
-- sem seleção manual de banco/mês/ano;
-- identifica banco e finais de cartão no documento;
-- lê PDF textual e usa OCR em imagem/PDF digitalizado;
-- separa compra, pagamento, saldo anterior e estorno/crédito;
-- reconhece parcelamentos;
-- revisão obrigatória antes de importar;
-- pagamentos e saldo anterior não entram como despesas.
+Correção da leitura completa de faturas:
+- varredura global das transações, mesmo quando o PDF junta várias compras na mesma linha;
+- suporte a descrições quebradas em múltiplas linhas;
+- banco e finais do cartão identificados automaticamente;
+- pagamentos, saldo anterior e estornos/créditos separados de compras;
+- parcelas reconhecidas;
+- competência derivada da data de cada compra;
+- revisão antes de gravar.
 
-A aplicação continua usando armazenamento local até a etapa de login/nuvem.
+Atualize os 4 arquivos no GitHub Pages e aguarde o novo deploy.

@@ -420,21 +420,26 @@ function statementMeta(text){
  return {bank,cards,statementDate,status,total:tm?brVal(tm[1]):null}
 }
 function normalizeStatementText(text){
- return String(text||"").replace(/\r/g,"\n")
+ return String(text||"")
+   .replace(/\r/g,"\n")
    .replace(/(\d{1,2})\s*\n\s*\/\s*(\d{1,2})/g,"$1/$2")
-   .replace(/\n(?!(?:\s*\d{2}\/\d{2}\b)|(?:\s*XXXX)|(?:\s*\.\s*Total)|(?:\s*Data Histórico)|(?:\s*Aplicativo)|(?:\s*Situação)|(?:\s*UANDERSON))/g," ")
-   .replace(/[ \t]+/g," ");
+   .replace(/\n+/g," ")
+   .replace(/[ \t]+/g," ")
+   .trim();
 }
 function parseStatementText(text,meta){
- let rows=[],seen=new Set(), norm=normalizeStatementText(text), lines=norm.split(/\n+/).map(x=>x.trim()).filter(Boolean);
+ let rows=[],seen=new Set(), s=normalizeStatementText(text);
  let fallbackYear=meta.statementDate?Number(meta.statementDate.slice(0,4)):new Date().getFullYear();
- for(let line of lines){
-   let m=line.match(/^(\d{2})\/(\d{2})(?:\/(\d{2,4}))?\s+(.+?)\s+BRL\s+(-?[\d.]+,\d{2})\s+0,00\s+R\$\s+0,00\s+(-?[\d.]+,\d{2})(?:\s|$)/i);
-   if(!m) m=line.match(/^(\d{2})\/(\d{2})(?:\/(\d{2,4}))?\s+(.+?)\s+(?:R\$\s*)?(-?[\d.]+,\d{2})(?:\s|$)/i);
-   if(!m) continue;
+
+ // Bradesco and similar exports: date + description + BRL + origin + US$ + R$ + final BRL amount.
+ // Global matching is deliberate: PDF extraction often joins several transactions on one physical line.
+ const rx=/(\d{2})\/(\d{2})(?:\/(\d{2,4}))?\s+(.+?)\s+BRL\s+(-?[\d.]+,\d{2})\s+0,00\s+R\$\s+0,00\s+(-?[\d.]+,\d{2})(?=\s+(?:\d{2}\/\d{2}\b|XXXX|\.?\s*Total|Data Histórico|$))/gi;
+ let m;
+ while((m=rx.exec(s))!==null){
    let dd=+m[1],mm=+m[2],yy=m[3]?+m[3]:fallbackYear;if(yy<100)yy+=2000;
-   let desc=m[4].trim().replace(/\s+BRL$/i,"").trim();
-   let value=brVal(m[6]!==undefined?m[6]:m[5]);
+   if(dd<1||dd>31||mm<1||mm>12)continue;
+   let desc=m[4].replace(/\s+/g," ").trim();
+   let value=brVal(m[6]);
    let u=desc.toUpperCase();
    let nature=/PAGTO|PAGAMENTO|PGTO/.test(u)?"Pagamento":(/SALDO ANTERIOR/.test(u)?"Saldo anterior":(value<0||/ESTORNO|CR[EÉ]DITO|CANCELAMENTO/.test(u)?"Estorno/Crédito":"Compra"));
    let pm=desc.match(/(?:^|\s)(\d{1,2})\s*\/\s*(\d{1,2})(?:\s|$)/),pa="",tp="";
@@ -444,7 +449,23 @@ function parseStatementText(text,meta){
    let key=[data,desc,value].join("|");if(seen.has(key))continue;seen.add(key);
    rows.push({data,descricao:desc,valor:value,categoria:classifyImport(desc),cartao:meta.bank,parcela_atual:pa,total_parcelas:tp,tipo:tp?"Parcela":"Variável",observacao:nature,competencia:competence,natureza:nature});
  }
- return rows;
+ // Fallback for simpler statements without BRL columns.
+ if(rows.length<3){
+   const simple=/(\d{2})\/(\d{2})(?:\/(\d{2,4}))?\s+(.+?)\s+(?:R\$\s*)?(-?[\d.]+,\d{2})(?=\s+(?:\d{2}\/\d{2}\b|$))/gi;
+   while((m=simple.exec(s))!==null){
+     let dd=+m[1],mm=+m[2],yy=m[3]?+m[3]:fallbackYear;if(yy<100)yy+=2000;
+     let desc=m[4].replace(/\s+/g," ").trim();
+     if(/\bBRL\b/.test(desc))continue;
+     let value=brVal(m[5]),u=desc.toUpperCase();
+     let nature=/PAGTO|PAGAMENTO|PGTO/.test(u)?"Pagamento":(/SALDO ANTERIOR/.test(u)?"Saldo anterior":(value<0||/ESTORNO|CR[EÉ]DITO|CANCELAMENTO/.test(u)?"Estorno/Crédito":"Compra"));
+     let pm=desc.match(/(?:^|\s)(\d{1,2})\s*\/\s*(\d{1,2})(?:\s|$)/),pa="",tp="";
+     if(pm){pa=+pm[1];tp=+pm[2];if(tp<pa||tp>60){pa="";tp=""}}
+     let data=`${yy}-${String(mm).padStart(2,"0")}-${String(dd).padStart(2,"0")}`,competence=`${yy}-${String(mm).padStart(2,"0")}`,key=[data,desc,value].join("|");
+     if(seen.has(key)||!value)continue;seen.add(key);
+     rows.push({data,descricao:desc,valor:value,categoria:classifyImport(desc),cartao:meta.bank,parcela_atual:pa,total_parcelas:tp,tipo:tp?"Parcela":"Variável",observacao:nature,competencia:competence,natureza:nature});
+   }
+ }
+ return rows.sort((x,y)=>y.data.localeCompare(x.data));
 }
 async function extractPdfText(file){
  let pdfjs=await import('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.min.mjs');
