@@ -1,12 +1,9 @@
-# Controle Financeiro — Web V24
+# Meu Financeiro — Web V26
 
-Novidades:
-- card **Cartões e PIX** no Dashboard;
-- mostra gastos/compromissos por cartão, mesmo quando o cartão ainda não foi cadastrado em Configurações;
-- mostra separadamente PIX, débito, dinheiro e lançamentos manuais/outros;
-- mantém por cartão: total, valor pago e falta pagar;
-- botão **Compartilhar sistema** para copiar o endereço publicado;
-- cada usuário continua com seus próprios dados salvos localmente no navegador/dispositivo;
-- mantém importação de Excel, PDF e imagens da V23.
+Correção do importador para o PDF real do Bradesco.
 
-Para publicar no GitHub Pages, substitua os arquivos do repositório pelos desta pasta e faça o commit.
+- identifica Bradesco pelo layout mesmo quando o nome do banco não aparece no texto do PDF;
+- entende a sequência DIA → LANÇAMENTO/VALOR → MÊS usada na fatura;
+- mantém lançamentos subsequentes na mesma data;
+- identifica cartões finais e parcelas;
+- pagamentos e saldo anterior não entram como despesas.

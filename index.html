@@ -479,7 +479,7 @@ function faturasR(){
  </div>`
 }
 function brVal(s){let x=String(s||"").replace(/\s/g,"").replace(/R\$/gi,"").replace(/\./g,"").replace(",",".");let n=Number(x);return Number.isFinite(n)?n:0}
-function autoBank(text){let u=String(text||"").toUpperCase();if(u.includes("BRADESCO"))return "Bradesco";if(u.includes("ITAÚ")||u.includes("ITAU")||u.includes("ITAUCARD"))return "Itaú";if(u.includes("NUBANK"))return "Nubank";if(u.includes("SANTANDER"))return "Santander";if(u.includes("BANCO DO BRASIL")||u.includes("OUROCARD"))return "Banco do Brasil";if(u.includes("C6 BANK"))return "C6 Bank";if(u.includes("BANCO INTER")||/\bINTER\b/.test(u))return "Inter";if(u.includes("CAIXA ECON")||u.includes("CARTÕES CAIXA")||u.includes("CARTOES CAIXA"))return "Caixa";return "Cartão não identificado"}
+function autoBank(text){let u=String(text||"").toUpperCase();if(u.includes("BRADESCO")||(u.includes("CARTAO SELECIONADO")&&u.includes("GASTOS REFERENTES AO CARTÃO: FINAL"))||(u.includes("CARTÃO SELECIONADO")&&u.includes("GASTOS REFERENTES AO CARTÃO: FINAL")))return "Bradesco";if(u.includes("ITAÚ")||u.includes("ITAU")||u.includes("ITAUCARD"))return "Itaú";if(u.includes("NUBANK"))return "Nubank";if(u.includes("SANTANDER"))return "Santander";if(u.includes("BANCO DO BRASIL")||u.includes("OUROCARD"))return "Banco do Brasil";if(u.includes("C6 BANK"))return "C6 Bank";if(u.includes("BANCO INTER")||/\bINTER\b/.test(u))return "Inter";if(u.includes("CAIXA ECON")||u.includes("CARTÕES CAIXA")||u.includes("CARTOES CAIXA"))return "Caixa";return "Cartão não identificado"}
 function classifyImport(desc){let u=String(desc).toUpperCase();for(const [k,v] of Object.entries(D.rules||{}))if(u.includes(String(k).toUpperCase()))return v;return smartCategory(desc)}
 function statementMeta(text){
  let bank=autoBank(text), cards=[...String(text).matchAll(/(?:XXXX[.\sX]*XXXX[.\sX]*XXXX[.\sX]*|\*{4}\s+\*{4}\s+\*{4}\s+|Final\s+)(\d{4})/gi)].map(m=>m[1]);
@@ -506,36 +506,46 @@ function ptMonthNumber(v){
  return m[String(v||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toUpperCase().slice(0,3)]||0;
 }
 function parseBradescoVisual(text,meta){
- if(meta.bank!=="Bradesco"&&!/BRADESCO/i.test(text))return [];
+ // O PDF do Bradesco nem sempre contém a palavra "Bradesco" no texto extraído.
+ // A estrutura "Cartão selecionado" + "Gastos referentes ao cartão: Final" identifica o layout.
+ if(meta.bank!=="Bradesco"&&!/Gastos referentes ao cart[aã]o:\s*Final/i.test(text))return [];
  const lines=String(text||"").split(/\n+/).map(x=>x.replace(/\s+/g," ").trim()).filter(Boolean);
  const statementYear=meta.statementDate?+meta.statementDate.slice(0,4):(String(text).match(/Data\s+(?:da\s+)?(?:Fatura\s+)?(\d{2})\/(\d{2})\/(\d{4})/i)||[])[3]*1||new Date().getFullYear();
- let currentDay=0,currentMonth=0,currentCard="",rows=[],seen=new Set(),pendingDay=0;
+ let currentDay=0,currentMonth=0,currentCard="",rows=[],seen=new Set(),pendingDay=0,pendingTx=null;
  const ignore=/^(?:Data|Lançamentos|Moeda de Origem|Valor \(US\$\)|Cotação|Valor \(R\$\)|Resumo das Despesas|Taxas Mensais|Pagamento mínimo|Despesas no exterior|\(?[+=-]\)?Total da fatura|Total da fatura|Valor da fatura anterior|Forma de pagamento|Melhor data de compra|Cartao selecionado|Cartão selecionado|Validade|GUSTAVO NASCIMENTO|Fatura$|Real$|---PAGE---)/i;
- for(let i=0;i<lines.length;i++){
-   let line=lines[i];
-   let cm=line.match(/Gastos referentes ao cartão:\s*Final\s*(\d{4})/i);if(cm){currentCard=cm[1];continue}
-   // Alguns PDFs trazem dia e mês na mesma linha; outros em duas linhas.
-   let dm=line.match(/^(\d{1,2})\s+(JAN|FEV|MAR|ABR|MAI|JUN|JUL|AGO|SET|OUT|NOV|DEZ)$/i);
-   if(dm){currentDay=+dm[1];currentMonth=ptMonthNumber(dm[2]);pendingDay=0;continue}
-   if(/^\d{1,2}$/.test(line)){pendingDay=+line;continue}
-   if(/^(JAN|FEV|MAR|ABR|MAI|JUN|JUL|AGO|SET|OUT|NOV|DEZ)$/i.test(line)&&pendingDay){currentDay=pendingDay;currentMonth=ptMonthNumber(line);pendingDay=0;continue}
-   // Quando PDF.js preserva colunas, a linha pode ser: 27 SET DESCRICAO 9,79
-   let inline=line.match(/^(\d{1,2})\s+(JAN|FEV|MAR|ABR|MAI|JUN|JUL|AGO|SET|OUT|NOV|DEZ)\s+(.+?)\s+(-?[\d.]+,\d{2})$/i);
-   let desc,val;
-   if(inline){currentDay=+inline[1];currentMonth=ptMonthNumber(inline[2]);desc=inline[3];val=brVal(inline[4])}
-   else{
-     let tr=line.match(/^(.+?)\s+(-?[\d.]+,\d{2})$/);
-     if(!tr||!currentDay||!currentMonth||ignore.test(line))continue;
-     desc=tr[1].trim();val=brVal(tr[2]);
-   }
-   if(!desc||!Number.isFinite(val)||val===0)continue;
-   if(/Valor da fatura|Saldo anterior|Pagamentos\/Créditos|Despesas locais|Pagamento mínimo|Taxa ao|Parcelamento de fatura|Rotativo|Saque|Crediário/i.test(desc))continue;
+ function addTx(desc,val,day,month){
+   if(!desc||!day||!month||!Number.isFinite(val)||val===0)return;
+   if(/Valor da fatura|Pagamentos\/Créditos|Despesas locais|Pagamento mínimo|Taxa ao|Parcelamento de fatura|Rotativo|Saque|Crediário/i.test(desc))return;
    let u=desc.toUpperCase(),nature=/PAG BOLETO|PAGTO|PAGAMENTO|PGTO/.test(u)?"Pagamento":(/SALDO ANTERIOR/.test(u)?"Saldo anterior":(val<0||/ESTORNO|CR[EÉ]DITO|CANCELAMENTO/.test(u)?"Estorno/Crédito":"Compra"));
    let pm=desc.match(/\(\s*(\d{1,2})\s*\/\s*(\d{1,2})\s*\)/)||desc.match(/(?:^|\s)(\d{1,2})\s*\/\s*(\d{1,2})(?:\s|$)/),pa="",tp="";
    if(pm){pa=+pm[1];tp=+pm[2];if(tp<pa||tp>60){pa="";tp=""}}
-   let data=`${statementYear}-${String(currentMonth).padStart(2,"0")}-${String(currentDay).padStart(2,"0")}`,competencia=`${statementYear}-${String(currentMonth).padStart(2,"0")}`;
-   let key=[data,desc,val,currentCard].join("|");if(seen.has(key))continue;seen.add(key);
+   let data=`${statementYear}-${String(month).padStart(2,"0")}-${String(day).padStart(2,"0")}`,competencia=`${statementYear}-${String(month).padStart(2,"0")}`;
+   let key=[data,desc,val,currentCard].join("|");if(seen.has(key))return;seen.add(key);
    rows.push({data,descricao:desc,valor:Math.abs(val),categoria:classifyImport(desc),cartao:currentCard?`Bradesco •••• ${currentCard}`:"Bradesco",parcela_atual:pa,total_parcelas:tp,tipo:tp?"Parcela":"Variável",observacao:nature,competencia,natureza:nature});
+ }
+ for(let i=0;i<lines.length;i++){
+   let line=lines[i];
+   let cm=line.match(/Gastos referentes ao cart[aã]o:\s*Final\s*(\d{4})/i);if(cm){currentCard=cm[1];continue}
+   // Caso 1: dia + mês na mesma linha.
+   let dm=line.match(/^(\d{1,2})\s+(JAN|FEV|MAR|ABR|MAI|JUN|JUL|AGO|SET|OUT|NOV|DEZ)$/i);
+   if(dm){currentDay=+dm[1];currentMonth=ptMonthNumber(dm[2]);pendingDay=0;continue}
+   // No Bradesco real o fluxo costuma ser: DIA -> DESCRIÇÃO/VALOR -> MÊS.
+   if(/^\d{1,2}$/.test(line)){pendingDay=+line;pendingTx=null;continue}
+   if(/^(JAN|FEV|MAR|ABR|MAI|JUN|JUL|AGO|SET|OUT|NOV|DEZ)$/i.test(line)&&pendingDay){
+     currentDay=pendingDay;currentMonth=ptMonthNumber(line);pendingDay=0;
+     if(pendingTx){addTx(pendingTx.desc,pendingTx.val,currentDay,currentMonth);pendingTx=null}
+     continue;
+   }
+   let inline=line.match(/^(\d{1,2})\s+(JAN|FEV|MAR|ABR|MAI|JUN|JUL|AGO|SET|OUT|NOV|DEZ)\s+(.+?)\s+(-?[\d.]+,\d{2})$/i);
+   let desc,val;
+   if(inline){currentDay=+inline[1];currentMonth=ptMonthNumber(inline[2]);desc=inline[3];val=brVal(inline[4]);addTx(desc,val,currentDay,currentMonth);continue}
+   let tr=line.match(/^(.+?)\s+(-?[\d.]+,\d{2})$/);
+   if(!tr||ignore.test(line))continue;
+   desc=tr[1].trim();val=brVal(tr[2]);
+   // Se acabou de aparecer um dia mas o mês ainda virá na próxima linha, segura a transação.
+   if(pendingDay&&!currentMonth){pendingTx={desc,val};continue}
+   if(pendingDay){pendingTx={desc,val};continue}
+   if(currentDay&&currentMonth)addTx(desc,val,currentDay,currentMonth);
  }
  return rows;
 }
