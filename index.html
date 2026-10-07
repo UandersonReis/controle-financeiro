@@ -336,6 +336,27 @@ function cardStatementSummary(card,C){
  let rows=C.tx.filter(x=>(x.cartao||"")===card), total=rows.reduce((s,x)=>s+num(x.valor),0), paid=cardPaid(card,selectedYear,selectedMonth);
  return {total,paid,remaining:Math.max(0,total-paid)};
 }
+function paymentSummary(C){
+ let map={};
+ C.tx.forEach(x=>{let k=(x.cartao||"Outros").trim()||"Outros";map[k]=(map[k]||0)+num(x.valor)});
+ return map;
+}
+function configuredCard(name){return (D.cards||[]).find(c=>String(c.nome).toLowerCase()===String(name).toLowerCase())}
+function paymentAccountsHtml(C){
+ let sums=paymentSummary(C);
+ let names=[...new Set([...(D.cards||[]).map(c=>c.nome),...Object.keys(sums).filter(x=>!["PIX","Dinheiro","Débito","Manual","Outros"].includes(x))])];
+ let blocks=names.map(name=>{let c=configuredCard(name)||{nome:name,limite:0,fechamento:"—",vencimento:"—"},S=cardStatementSummary(name,C),pct=c.limite?S.total/c.limite*100:0;return `<div class="cardAccount"><div class="rowTitle"><div class="bankHead">${bankIcon(name)}<div><b>${esc(name)}</b><div class="sub">${c.limite?`Fecha dia ${c.fechamento}${c.vencimento?` • Vence dia ${c.vencimento}`:""} • Limite ${money(c.limite)}`:"Cartão identificado pelos lançamentos"}</div></div></div><b>${money(S.total)}</b></div>${c.limite?`<div class="progress"><i style="width:${Math.min(100,pct)}%"></i></div>`:""}<div class="grid3" style="margin-top:10px"><div><div class="sub">Gastos/compromissos</div><b>${money(S.total)}</b></div><div><div class="sub">Pago</div><b class="pos">${money(S.paid)}</b></div><div><div class="sub">Falta pagar</div><b class="${S.remaining>0?'warn':'pos'}">${money(S.remaining)}</b></div></div><button class="btn ghost" style="margin-top:9px" onclick="setCardPaid('${String(name).replace(/'/g,"\'")}',${selectedYear},${selectedMonth})">Atualizar valor pago</button></div>`}).join("");
+ let pix=num(sums["PIX"]||0),deb=num(sums["Débito"]||0),din=num(sums["Dinheiro"]||0),manual=num(sums["Manual"]||0);
+ let direct=[['PIX',pix],['Débito',deb],['Dinheiro',din],['Outros/Manual',manual+num(sums['Outros']||0)]].filter(x=>x[1]>0);
+ if(direct.length)blocks+=`<div class="msg" style="margin-top:10px"><b>Pagamentos fora do cartão</b><div class="grid3" style="margin-top:10px">${direct.map(([n,v])=>`<div><div class="sub">${n}</div><b>${money(v)}</b></div>`).join('')}</div></div>`;
+ if(!blocks)blocks=`<div class="empty">Nenhum gasto por cartão ou PIX registrado em ${MONTHS[selectedMonth-1]}/${selectedYear}. Os cartões também podem ser cadastrados em Configurações.</div>`;
+ return blocks;
+}
+async function shareApp(){
+ let url=location.href.split('#')[0];
+ try{await navigator.clipboard.writeText(url);alert('Link do sistema copiado. Você já pode enviar para a equipe. Cada pessoa terá seus próprios dados neste navegador.');}
+ catch(e){prompt('Copie este link para compartilhar com a equipe:',url)}
+}
 function compositionHtml(C){
  let X=expenseComposition(C);
  return `<div class="card" style="margin-top:13px"><div class="rowTitle"><div><h3>Composição das Despesas</h3><div class="sub">Entenda o que forma os ${money(C.total)} comprometidos em ${MONTHS[selectedMonth-1]}/${selectedYear}.</div></div><b>${money(C.total)}</b></div>
@@ -364,8 +385,8 @@ function dashboardR(){
   <div class="card"><div class="rowTitle"><h3>Evolução das Despesas</h3><span class="muted">6 meses</span></div>${lineSvg(hist)}</div>
  </div>
  <div class="grid22">
-  <div class="card"><h3>Faturas dos Cartões</h3>
-   ${cards.length?cards.map(c=>{let S=cardStatementSummary(c.nome,C),pct=c.limite?S.total/c.limite*100:0;return `<div class="cardAccount"><div class="rowTitle"><div class="bankHead">${bankIcon(c.nome)}<div><b>${c.nome}</b><div class="sub">Fecha dia ${c.fechamento}${c.vencimento?` • Vence dia ${c.vencimento}`:""} • Limite ${money(c.limite)}</div></div></div><b>${money(S.total)}</b></div><div class="progress"><i style="width:${Math.min(100,pct)}%"></i></div><div class="grid3" style="margin-top:10px"><div><div class="sub">Fatura/compromissos</div><b>${money(S.total)}</b></div><div><div class="sub">Pago</div><b class="pos">${money(S.paid)}</b></div><div><div class="sub">Falta pagar</div><b class="${S.remaining>0?'warn':'pos'}">${money(S.remaining)}</b></div></div><button class="btn ghost" style="margin-top:9px" onclick="setCardPaid('${c.nome.replace(/'/g,"\'")}',${selectedYear},${selectedMonth})">Atualizar valor pago</button></div>`}).join(""):`<div class="empty">Cadastre seus cartões em Configurações para acompanhar fatura, valor pago e saldo a pagar.</div>`}
+  <div class="card"><div class="rowTitle"><div><h3>Cartões e PIX</h3><div class="sub">Quanto foi gasto por forma de pagamento no mês.</div></div><button class="btn ghost" onclick="shareApp()">Compartilhar sistema</button></div>
+   ${paymentAccountsHtml(C)}
    <button class="btn wide" onclick="showPage('faturas')">Importar fatura</button>
   </div>
   <div class="card"><div class="rowTitle"><h3>Principais Lançamentos</h3><button class="btn ghost" onclick="showPage('lancamentos')">Ver todos</button></div>${txTable(topTransactions(C.tx),false)}</div>

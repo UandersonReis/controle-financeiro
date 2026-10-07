@@ -1,19 +1,12 @@
-# Meu Financeiro — Web V23
+# Controle Financeiro — Web V24
 
-## Novidade principal
-Importação de faturas por Excel (`.xlsx` / `.xls`), além de PDF e imagens.
+Novidades:
+- card **Cartões e PIX** no Dashboard;
+- mostra gastos/compromissos por cartão, mesmo quando o cartão ainda não foi cadastrado em Configurações;
+- mostra separadamente PIX, débito, dinheiro e lançamentos manuais/outros;
+- mantém por cartão: total, valor pago e falta pagar;
+- botão **Compartilhar sistema** para copiar o endereço publicado;
+- cada usuário continua com seus próprios dados salvos localmente no navegador/dispositivo;
+- mantém importação de Excel, PDF e imagens da V23.
 
-### Itaú — fatura aberta
-A V23 reconhece a planilha de fatura aberta do Itaú, identifica automaticamente:
-- banco;
-- situação da fatura (aberta/fechada);
-- competência da fatura;
-- final do cartão quando disponível;
-- compras e parcelas;
-- pagamentos e créditos/estornos.
-
-Os pagamentos não são gravados como novas despesas. Em faturas abertas, os lançamentos recebem a competência da própria fatura (por exemplo, Outubro/2026), mesmo que a compra tenha ocorrido no fim de setembro.
-
-A importação continua exibindo revisão antes de gravar e mantém a proteção contra duplicidades.
-
-> Dados financeiros permanecem no navegador do usuário; não grave faturas ou backups no repositório GitHub.
+Para publicar no GitHub Pages, substitua os arquivos do repositório pelos desta pasta e faça o commit.
