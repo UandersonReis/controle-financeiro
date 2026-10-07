@@ -85,6 +85,19 @@ table{width:100%;border-collapse:collapse;font-size:12px}th,td{padding:8px;borde
 @media(max-width:420px){.cards4{grid-template-columns:1fr}}
 
 </style>
+
+<style>
+/* V18 — importação inteligente */
+#importBank,#importMonth,#importYear,
+label[for="importBank"],label[for="importMonth"],label[for="importYear"]{display:none!important}
+.v18-auto-box{background:#0c2638;border:1px solid #1c4b65;border-radius:12px;padding:12px 14px;margin:10px 0;color:#cfe8f7;font-size:13px}
+.v18-auto-box strong{color:#fff}
+.v18-review{margin-top:12px;border:1px solid #24445a;border-radius:12px;overflow:hidden}
+.v18-review table{width:100%;border-collapse:collapse;font-size:12px}
+.v18-review th,.v18-review td{padding:8px;border-bottom:1px solid #20384b;text-align:left}
+.v18-review th{color:#9fc8df}
+</style>
+
 </head>
 <body>
 <aside>
@@ -392,8 +405,8 @@ async function saveTxEdit(id){
 async function delTx(id){if(confirm("Excluir este lançamento?")){D.transactions=D.transactions.filter(x=>x.id!=id);await save();renderAll()}}
 
 function faturasR(){
- $("faturasPage").innerHTML=`<div class="topbar"><div><h1 class="sectionTitle">Importar Fatura</h1><div class="muted">Aceita PDF, foto ou print. O sistema tenta ler automaticamente e sempre mostra uma revisão antes de lançar.</div></div>${globalFilter()}</div>
- <div class="card"><div class="formgrid5"><select id="pdfBank"><option value="Automático">Banco automático</option>${(D.cards||[]).map(c=>`<option>${c.nome}</option>`).join("")}<option>Bradesco</option><option>Itaú</option><option>Nubank</option><option>Santander</option><option>Caixa</option><option>Banco do Brasil</option><option>Inter</option><option>Outro</option></select><input id="pdfCompetence" type="month" value="${selectedYear}-${String(selectedMonth).padStart(2,"0")}"><input id="pdfYear" type="number" value="${selectedYear}" min="2020" max="2100"><input id="pdfFile" type="file" accept=".pdf,.png,.jpg,.jpeg,image/png,image/jpeg,application/pdf"><button class="btn" onclick="readStatement()">Ler e preparar</button></div><div class="msg" style="margin-top:12px">PDF com texto: leitura direta. PDF digitalizado, JPG, JPEG ou PNG: leitura visual (OCR). Para OCR é necessário estar conectado à internet.</div><div id="pdfResult" style="margin-top:13px"></div></div>`
+ $("faturasPage").innerHTML=`<div class="topbar"><div><h1 class="sectionTitle">Importar Fatura</h1><div class="muted">Envie PDF, foto ou print. O sistema identifica automaticamente banco, cartão e lançamentos e sempre mostra uma revisão antes de importar.</div></div>${globalFilter()}</div>
+ <div class="card"><div class="formgrid5"><select id="pdfBank"><option value="Automático">Banco automático</option>${(D.cards||[]).map(c=>`<option>${c.nome}</option>`).join("")}<option>Bradesco</option><option>Itaú</option><option>Nubank</option><option>Santander</option><option>Caixa</option><option>Banco do Brasil</option><option>Inter</option><option>Outro</option></select><input id="pdfCompetence" type="month" value="${selectedYear}-${String(selectedMonth).padStart(2,"0")}"><input id="pdfYear" type="number" value="${selectedYear}" min="2020" max="2100"><input id="pdfFile" type="file" accept=".pdf,.png,.jpg,.jpeg,image/png,image/jpeg,application/pdf"><button class="btn" onclick="readStatement()">Analisar fatura</button></div><div class="msg" style="margin-top:12px">PDF com texto: leitura direta. PDF digitalizado, JPG, JPEG ou PNG: leitura visual (OCR). Para OCR é necessário estar conectado à internet.</div><div id="pdfResult" style="margin-top:13px"></div></div>`
 }
 function brVal(s){return Number(String(s).replace(/\s/g,"").replace(/R\$/gi,"").replace(/\./g,"").replace(",","."))||0}
 function autoBank(text,selected){if(selected&&selected!=="Automático")return selected;let u=text.toUpperCase();if(u.includes("BRADESCO"))return "Bradesco";if(u.includes("ITAÚ")||u.includes("ITAU"))return "Itaú";if(u.includes("NUBANK"))return "Nubank";if(u.includes("SANTANDER"))return "Santander";if(u.includes("BANCO DO BRASIL"))return "Banco do Brasil";if(u.includes("INTER"))return "Inter";if(u.includes("CAIXA"))return "Caixa";return "Cartão"}
@@ -543,6 +556,138 @@ if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
     navigator.serviceWorker.register('./sw.js').catch(err => console.warn('SW:', err));
   });
 }
+</script>
+
+
+<script>
+/* Controle Financeiro V18 — camada de interpretação flexível */
+(function(){
+  const moneyBR = s => {
+    if (s == null) return null;
+    let x = String(s).trim().replace(/R\$\s*/gi,'').replace(/\./g,'').replace(',','.');
+    const n = Number(x);
+    return Number.isFinite(n) ? n : null;
+  };
+  const norm = s => String(s||'').replace(/\u00a0/g,' ').replace(/[ \t]+/g,' ').trim();
+
+  function detectInstitution(text){
+    const t = text.toUpperCase();
+    if (/BRADESCO|BRADESCO CART[ÕO]ES/.test(t)) return {bank:'Bradesco', issuer:'Bradesco Cartões'};
+    if (/ITA[ÚU]|ITAUCARD/.test(t)) return {bank:'Itaú', issuer:'Itaú Cartões'};
+    if (/NUBANK/.test(t)) return {bank:'Nubank', issuer:'Nubank'};
+    if (/SANTANDER/.test(t)) return {bank:'Santander', issuer:'Santander'};
+    if (/BANCO DO BRASIL|OUROCARD/.test(t)) return {bank:'Banco do Brasil', issuer:'Ourocard'};
+    if (/CAIXA ECON[ÔO]MICA|CART[ÕO]ES CAIXA/.test(t)) return {bank:'Caixa', issuer:'Caixa Cartões'};
+    if (/INTER\b|BANCO INTER/.test(t)) return {bank:'Inter', issuer:'Inter'};
+    if (/C6 BANK/.test(t)) return {bank:'C6 Bank', issuer:'C6 Bank'};
+    return {bank:'Não identificado', issuer:''};
+  }
+
+  function detectCards(text){
+    const cards=[];
+    const re=/(?:final\s*)?(\d{4})|XXXX[.\sX]*XXXX[.\sX]*XXXX[.\sX]*(\d{4})/gi;
+    let m;
+    while((m=re.exec(text))){
+      const last=m[1]||m[2];
+      if(last && !cards.includes(last)) cards.push(last);
+    }
+    return cards.slice(0,8);
+  }
+
+  function detectStatus(text){
+    if (/EXTRATO\s*:\s*EM ABERTO|SITUA[CÇ][AÃ]O DO EXTRATO\s*:\s*EM ABERTO/i.test(text)) return 'Em aberto';
+    if (/FATURA FECHADA|EXTRATO FECHADO/i.test(text)) return 'Fechada';
+    return 'Não identificado';
+  }
+
+  function classifyType(desc, value){
+    const d=desc.toUpperCase();
+    if (/PAGTO|PAGAMENTO|PGTO|PAG\.?\s*FATURA|ANTECIPADO/.test(d)) return 'Pagamento';
+    if (/SALDO ANTERIOR/.test(d)) return 'Saldo anterior';
+    if (value < 0 || /ESTORNO|CR[EÉ]DITO|CANCELAMENTO/.test(d)) return 'Estorno/Crédito';
+    return 'Compra';
+  }
+
+  function parseInstallment(desc){
+    const m=desc.match(/(?:^|\s)(\d{1,2})\s*\/\s*(\d{1,2})(?:\s|$)/);
+    return m ? {current:+m[1], total:+m[2]} : null;
+  }
+
+  function parseTransactions(raw){
+    let text=String(raw||'').replace(/\r/g,'\n');
+    // Unebras comuns de PDF: mantém nova data como início de registro.
+    let lines=text.split(/\n+/).map(norm).filter(Boolean);
+    const records=[];
+    let buffer='';
+    const dateStart=/^(\d{2})\/(\d{2})(?:\/(\d{2,4}))?\s+/;
+
+    const flush=()=>{
+      if(!buffer) return;
+      const m=buffer.match(/^(\d{2}\/\d{2}(?:\/\d{2,4})?)\s+(.+?)\s+(?:BRL\s+)?(-?[\d.]+,\d{2})(?:\s+0,00\s+R\$\s*0,00\s+(-?[\d.]+,\d{2}))?\s*$/i);
+      if(m){
+        const value=moneyBR(m[4]||m[3]);
+        let desc=norm(m[2]).replace(/\s+BRL$/i,'');
+        const type=classifyType(desc,value);
+        records.push({date:m[1],description:desc,value,type,installment:parseInstallment(desc)});
+      }
+      buffer='';
+    };
+
+    for(const line of lines){
+      if(dateStart.test(line)){ flush(); buffer=line; }
+      else if(buffer){ buffer+=' '+line; }
+    }
+    flush();
+
+    // fallback linha-a-linha para formatos simples
+    if(!records.length){
+      const simple=/(\d{2}\/\d{2}(?:\/\d{2,4})?)\s+(.+?)\s+(-?R?\$?\s*[\d.]+,\d{2})(?=\s|$)/g;
+      let m;
+      while((m=simple.exec(text))){
+        const value=moneyBR(m[3]), desc=norm(m[2]);
+        records.push({date:m[1],description:desc,value,type:classifyType(desc,value),installment:parseInstallment(desc)});
+      }
+    }
+    return records;
+  }
+
+  function analyzeStatement(text){
+    const inst=detectInstitution(text);
+    const tx=parseTransactions(text);
+    const purchases=tx.filter(x=>x.type==='Compra');
+    const payments=tx.filter(x=>x.type==='Pagamento');
+    const credits=tx.filter(x=>x.type==='Estorno/Crédito');
+    const installments=purchases.filter(x=>x.installment);
+    const totalMatch=text.match(/Total da Fatura em Real[\s\S]{0,40}?R\$\s*(-?[\d.]+,\d{2})/i)
+      || text.match(/Total(?:\s+da)?\s+Fatura[\s\S]{0,30}?R\$\s*(-?[\d.]+,\d{2})/i);
+    return {
+      ...inst, cards:detectCards(text), status:detectStatus(text), transactions:tx,
+      purchases, payments, credits, installments,
+      statedTotal: totalMatch ? moneyBR(totalMatch[1]) : null
+    };
+  }
+
+  window.CF_V18 = {analyzeStatement, parseTransactions, detectInstitution};
+
+  function addAutoHint(){
+    const file=document.querySelector('input[type="file"]');
+    if(!file || document.getElementById('v18AutoHint')) return;
+    const box=document.createElement('div');
+    box.id='v18AutoHint'; box.className='v18-auto-box';
+    box.innerHTML='<strong>Identificação automática</strong><br>Não é necessário escolher banco, mês ou ano. O sistema identifica essas informações a partir da própria fatura e mostra tudo para conferência antes de importar.';
+    file.parentElement?.parentElement?.insertBefore(box,file.parentElement);
+  }
+
+  // Intercepta o texto extraído pelas rotinas existentes quando ele for exposto em textarea/pre/variável de revisão.
+  window.addEventListener('cf:statement-text', e=>{
+    const a=analyzeStatement(e.detail?.text||'');
+    window.__CF_LAST_ANALYSIS=a;
+    window.dispatchEvent(new CustomEvent('cf:statement-analysis',{detail:a}));
+  });
+
+  document.addEventListener('DOMContentLoaded', addAutoHint);
+  setTimeout(addAutoHint,800);
+})();
 </script>
 
 </body></html>

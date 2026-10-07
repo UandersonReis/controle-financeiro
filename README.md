@@ -1,11 +1,12 @@
-# Meu Financeiro — Web V17
+# Meu Financeiro — Web V18
 
-Versão web responsiva do Controle Financeiro.
+## Importador inteligente
+- banco identificado pelo conteúdo da fatura;
+- cartão/final identificado quando disponível;
+- mês/ano não precisam ser escolhidos previamente;
+- separação entre compras, pagamentos, saldo anterior e estornos/créditos;
+- reconhecimento de parcelas `n/total`;
+- PDF, imagem e OCR continuam no fluxo de importação;
+- revisão antes da gravação.
 
-Arquivos para publicar:
-- index.html
-- manifest.webmanifest
-- sw.js
-
-Esta etapa publica a interface web. Login e sincronização em nuvem serão conectados na etapa seguinte.
-A importação de faturas aceita PDF e imagens e requer internet para as bibliotecas de leitura/OCR.
+O repositório contém somente a aplicação. Dados financeiros não devem ser gravados no GitHub.
