@@ -139,6 +139,7 @@ function normalize(){
  if(!D.categories)D.categories=["Saúde","Transporte","Alimentação/Despesas da Casa","Lazer","Vestuário","Educação","Moradia/Contas Fixas","Assinaturas","Compras/Casa","Outros"];
  if(!D.cards)D.cards=[];
  if(!D.card_payments)D.card_payments={};
+ if(!D.statements)D.statements=[];
  if(!D.income_sources)D.income_sources=[{id:"r1",descricao:"Salário fixo",valor:num(D.salary||0),tipo:"Fixa",ativa:true}];
  if(!D.control_start)D.control_start="2026-09";
  D.fixed=(D.fixed||[]).map((x,i)=>({...x,id:x.id||("f"+i+"_"+uid()),ativa:x.ativa!==false}));
@@ -332,9 +333,31 @@ async function setCardPaid(card,y,m){
  if(v===null)return;v=Number(String(v).replace(/\./g,"").replace(",","."));if(!Number.isFinite(v)||v<0)return alert("Informe um valor válido.");
  D.card_payments[paymentKey(card,y,m)]=v;await save();renderAll();
 }
+function statementCompetence(meta,rows=[]){
+ if(meta&&meta.competence)return meta.competence;
+ if(meta&&meta.statementDate){
+   let [y,m,d]=meta.statementDate.split("-").map(Number);
+   // Faturas emitidas nos primeiros dias do mês normalmente correspondem ao ciclo anterior.
+   if(d<=10){m--;if(m<1){m=12;y--}return monthKey(y,m)}
+   return monthKey(y,m);
+ }
+ let comps=rows.filter(x=>x.natureza==="Compra"&&x.competencia).map(x=>x.competencia).sort();
+ return comps.length?comps[comps.length-1]:monthKey(selectedYear,selectedMonth);
+}
+function statementFor(card,y,m){
+ const comp=monthKey(y,m), base=String(card||"").toLowerCase().split(" ••••")[0].trim();
+ return (D.statements||[]).filter(s=>s.competencia===comp && String(s.bank||"").toLowerCase()===base).sort((a,b)=>String(b.importedAt||"").localeCompare(String(a.importedAt||"")))[0]||null;
+}
+function saveStatementMeta(meta,rows){
+ if(meta.total===null||!Number.isFinite(Number(meta.total)))return;
+ const competencia=statementCompetence(meta,rows), bank=meta.bank||"Cartão";
+ const rec={id:uid(),bank,total:Number(meta.total),competencia,status:meta.status||"",statementDate:meta.statementDate||"",cards:meta.cards||[],importedAt:new Date().toISOString()};
+ D.statements=(D.statements||[]).filter(x=>!(x.bank===rec.bank&&x.competencia===rec.competencia));
+ D.statements.push(rec);
+}
 function cardStatementSummary(card,C){
- let rows=C.tx.filter(x=>(x.cartao||"")===card), total=rows.reduce((s,x)=>s+num(x.valor),0), paid=cardPaid(card,selectedYear,selectedMonth);
- return {total,paid,remaining:Math.max(0,total-paid)};
+ let rows=C.tx.filter(x=>(x.cartao||"")===card), spending=rows.reduce((s,x)=>s+num(x.valor),0), st=statementFor(card,selectedYear,selectedMonth), total=st?num(st.total):spending, paid=cardPaid(card,selectedYear,selectedMonth);
+ return {total,spending,paid,remaining:Math.max(0,total-paid),statement:st};
 }
 function paymentSummary(C){
  let map={};
@@ -345,7 +368,7 @@ function configuredCard(name){return (D.cards||[]).find(c=>String(c.nome).toLowe
 function paymentAccountsHtml(C){
  let sums=paymentSummary(C);
  let names=[...new Set([...(D.cards||[]).map(c=>c.nome),...Object.keys(sums).filter(x=>!["PIX","Dinheiro","Débito","Manual","Outros"].includes(x))])];
- let blocks=names.map(name=>{let c=configuredCard(name)||{nome:name,limite:0,fechamento:"—",vencimento:"—"},S=cardStatementSummary(name,C),pct=c.limite?S.total/c.limite*100:0;return `<div class="cardAccount"><div class="rowTitle"><div class="bankHead">${bankIcon(name)}<div><b>${esc(name)}</b><div class="sub">${c.limite?`Fecha dia ${c.fechamento}${c.vencimento?` • Vence dia ${c.vencimento}`:""} • Limite ${money(c.limite)}`:"Cartão identificado pelos lançamentos"}</div></div></div><b>${money(S.total)}</b></div>${c.limite?`<div class="progress"><i style="width:${Math.min(100,pct)}%"></i></div>`:""}<div class="grid3" style="margin-top:10px"><div><div class="sub">Gastos/compromissos</div><b>${money(S.total)}</b></div><div><div class="sub">Pago</div><b class="pos">${money(S.paid)}</b></div><div><div class="sub">Falta pagar</div><b class="${S.remaining>0?'warn':'pos'}">${money(S.remaining)}</b></div></div><button class="btn ghost" style="margin-top:9px" onclick="setCardPaid('${String(name).replace(/'/g,"\'")}',${selectedYear},${selectedMonth})">Atualizar valor pago</button></div>`}).join("");
+ let blocks=names.map(name=>{let c=configuredCard(name)||{nome:name,limite:0,fechamento:"—",vencimento:"—"},S=cardStatementSummary(name,C),pct=c.limite?S.total/c.limite*100:0;return `<div class="cardAccount"><div class="rowTitle"><div class="bankHead">${bankIcon(name)}<div><b>${esc(name)}</b><div class="sub">${c.limite?`Fecha dia ${c.fechamento}${c.vencimento?` • Vence dia ${c.vencimento}`:""} • Limite ${money(c.limite)}`:"Cartão identificado pelos lançamentos"}</div></div></div><b>${money(S.total)}</b></div>${c.limite?`<div class="progress"><i style="width:${Math.min(100,pct)}%"></i></div>`:""}<div class="grid3" style="margin-top:10px"><div><div class="sub">${S.statement?"Fatura a pagar":"Gastos/compromissos"}</div><b>${money(S.total)}</b></div><div><div class="sub">Pago</div><b class="pos">${money(S.paid)}</b></div><div><div class="sub">Falta pagar</div><b class="${S.remaining>0?'warn':'pos'}">${money(S.remaining)}</b></div></div>${S.statement?`<div class="sub" style="margin-top:8px">Gastos por competência: <b>${money(S.spending)}</b> · Total informado pelo banco: <b>${money(S.total)}</b></div>`:""}<button class="btn ghost" style="margin-top:9px" onclick="setCardPaid('${String(name).replace(/'/g,"\'")}',${selectedYear},${selectedMonth})">Atualizar valor pago</button></div>`}).join("");
  let pix=num(sums["PIX"]||0),deb=num(sums["Débito"]||0),din=num(sums["Dinheiro"]||0),manual=num(sums["Manual"]||0);
  let direct=[['PIX',pix],['Débito',deb],['Dinheiro',din],['Outros/Manual',manual+num(sums['Outros']||0)]].filter(x=>x[1]>0);
  if(direct.length)blocks+=`<div class="msg" style="margin-top:10px"><b>Pagamentos fora do cartão</b><div class="grid3" style="margin-top:10px">${direct.map(([n,v])=>`<div><div class="sub">${n}</div><b>${money(v)}</b></div>`).join('')}</div></div>`;
@@ -641,11 +664,13 @@ async function extractPdfText(file){
  return text;
 }
 async function extractImageText(file){let r=await Tesseract.recognize(file,'por',{logger:m=>{if(m.status&&m.progress!==undefined)$("pdfResult").innerHTML=`<div class="msg">Leitura visual: ${m.status} ${Math.round(m.progress*100)}%</div>`}});return r.data.text}
+let previewStatementMeta=null, previewStatementRows=[];
 function renderStatementAnalysis(meta,allRows){
+ previewStatementMeta=meta; previewStatementRows=allRows;
  let purchases=allRows.filter(x=>x.natureza==="Compra"),payments=allRows.filter(x=>x.natureza==="Pagamento"),credits=allRows.filter(x=>x.natureza==="Estorno/Crédito"),balances=allRows.filter(x=>x.natureza==="Saldo anterior"),parts=purchases.filter(x=>x.total_parcelas);
  let warn=meta.status==="Em aberto"?`<div class="msg" style="margin-top:10px"><b>Atenção:</b> este extrato está em aberto e os valores ainda podem mudar até o fechamento.</div>`:"";
- let totalTxt=meta.total===null?"Não identificado":money(meta.total);
- $("pdfResult").innerHTML=`<div class="msg green"><b>Fatura lida com sucesso.</b><br>Banco: <b>${esc(meta.bank)}</b>${meta.cards.length?` · Cartão(ões) final: <b>${meta.cards.join(", ")}</b>`:""} · Situação: <b>${esc(meta.status)}</b> · Total informado: <b>${totalTxt}</b><br>${purchases.length} compras · ${parts.length} parceladas · ${payments.length} pagamentos · ${credits.length} estornos/créditos${balances.length?` · ${balances.length} saldo anterior`:""}.</div>${warn}<div class="msg" style="margin-top:10px">Pagamentos e saldo anterior foram identificados, mas <b>não serão lançados como despesas</b>. Estornos/créditos ficam fora da seleção automática para evitar distorções; você pode revisar abaixo.</div>`;
+ let totalTxt=meta.total===null?"Não identificado":money(meta.total), comp=statementCompetence(meta,allRows);
+ $("pdfResult").innerHTML=`<div class="msg green"><b>Fatura lida com sucesso.</b><br>Banco: <b>${esc(meta.bank)}</b>${meta.cards.length?` · Cartão(ões) final: <b>${meta.cards.join(", ")}</b>`:""} · Situação: <b>${esc(meta.status)}</b> · Total informado: <b>${totalTxt}</b> · Competência da fatura: <b>${comp}</b><br>${purchases.length} compras · ${parts.length} parceladas · ${payments.length} pagamentos · ${credits.length} estornos/créditos${balances.length?` · ${balances.length} saldo anterior`:""}.</div>${warn}<div class="msg" style="margin-top:10px">Pagamentos e saldo anterior foram identificados, mas <b>não serão lançados como despesas</b>. Estornos/créditos ficam fora da seleção automática para evitar distorções; você pode revisar abaixo.</div>`;
  preview=purchases.map(x=>({...x,id:uid(),importar:true}));
  renderPreview();
 }
@@ -671,7 +696,7 @@ function renderPreview(){
 }
 async function confirmImport(){
  let sel=preview.filter(x=>x.importar).map(({importar,...x})=>x),existing=new Set(D.transactions.map(x=>[x.competencia,x.data,x.descricao,x.valor,x.cartao].join("|"))),fresh=sel.filter(x=>!existing.has([x.competencia,x.data,x.descricao,x.valor,x.cartao].join("|")));
- D.transactions.push(...fresh);await save();preview=[];alert(fresh.length?`${fresh.length} lançamentos importados. ${sel.length-fresh.length} duplicados ignorados.`:`Nenhum novo lançamento importado. Os ${sel.length} lançamentos selecionados já estavam cadastrados nesta competência e foram ignorados para evitar duplicidade.`);showPage("dashboard")
+ D.transactions.push(...fresh);if(previewStatementMeta)saveStatementMeta(previewStatementMeta,previewStatementRows);await save();preview=[];previewStatementMeta=null;previewStatementRows=[];alert(fresh.length?`${fresh.length} lançamentos importados. ${sel.length-fresh.length} duplicados ignorados.`:`Nenhum novo lançamento importado. Os ${sel.length} lançamentos selecionados já estavam cadastrados nesta competência e foram ignorados para evitar duplicidade.`);showPage("dashboard")
 }
 
 function fixasR(){
