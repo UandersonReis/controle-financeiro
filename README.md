@@ -1,9 +1,19 @@
-# Meu Financeiro — Web V22
+# Meu Financeiro — Web V23
 
-Atualização do dashboard:
-- composição das despesas: gastos do mês, parcelas anteriores e contas fixas;
-- acompanhamento por cartão: fatura/compromissos, valor pago e falta pagar;
-- valor pago pode ser atualizado manualmente por mês e cartão;
-- mantém importação, projeções, classificação e gestão de lançamentos da V21.
+## Novidade principal
+Importação de faturas por Excel (`.xlsx` / `.xls`), além de PDF e imagens.
 
-Os dados permanecem somente no navegador (localStorage). Não publique faturas ou dados financeiros no GitHub.
+### Itaú — fatura aberta
+A V23 reconhece a planilha de fatura aberta do Itaú, identifica automaticamente:
+- banco;
+- situação da fatura (aberta/fechada);
+- competência da fatura;
+- final do cartão quando disponível;
+- compras e parcelas;
+- pagamentos e créditos/estornos.
+
+Os pagamentos não são gravados como novas despesas. Em faturas abertas, os lançamentos recebem a competência da própria fatura (por exemplo, Outubro/2026), mesmo que a compra tenha ocorrido no fim de setembro.
+
+A importação continua exibindo revisão antes de gravar e mantém a proteção contra duplicidades.
+
+> Dados financeiros permanecem no navegador do usuário; não grave faturas ou backups no repositório GitHub.

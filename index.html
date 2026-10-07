@@ -116,6 +116,7 @@ table{width:100%;border-collapse:collapse;font-size:12px}th,td{padding:8px;borde
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.min.mjs" type="module"></script>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script>
 window.addEventListener("error",e=>{ if(String(e.message||"").includes("pdf")) console.warn(e); });
 </script>
@@ -446,13 +447,13 @@ function smartCategory(desc){let u=String(desc||"").toUpperCase();let rules=[
 async function reclassifyMonth(){let arr=txFor(selectedYear,selectedMonth),changed=0;for(const x of arr){let c=smartCategory(x.descricao);if(c!=="Outros"&&x.categoria!==c){x.categoria=c;changed++}}if(!changed)return alert("Nenhuma classificação automática nova foi encontrada neste mês.");await save();renderAll();alert(`${changed} lançamento(s) reclassificado(s).`)}
 
 function faturasR(){
- $("faturasPage").innerHTML=`<div class="topbar"><div><h1 class="sectionTitle">Importar Fatura</h1><div class="muted">Envie PDF, foto ou print. Banco, cartão e período são identificados a partir do próprio documento.</div></div>${globalFilter()}</div>
+ $("faturasPage").innerHTML=`<div class="topbar"><div><h1 class="sectionTitle">Importar Fatura</h1><div class="muted">Envie Excel, PDF, foto ou print. Banco, cartão e período são identificados a partir do próprio documento.</div></div>${globalFilter()}</div>
  <div class="card">
    <div style="display:grid;grid-template-columns:minmax(240px,1fr) 190px;gap:10px;align-items:center">
-     <input id="pdfFile" type="file" accept=".pdf,.png,.jpg,.jpeg,image/png,image/jpeg,application/pdf">
+     <input id="pdfFile" type="file" accept=".xlsx,.xls,.pdf,.png,.jpg,.jpeg,image/png,image/jpeg,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel">
      <button class="btn" onclick="readStatement()">Analisar fatura</button>
    </div>
-   <div class="msg" style="margin-top:12px"><b>Identificação automática.</b> PDF com texto usa leitura direta. PDF digitalizado, JPG, JPEG ou PNG usa OCR. Nada é gravado antes da sua confirmação.</div>
+   <div class="msg" style="margin-top:12px"><b>Identificação automática.</b> Excel (.xlsx/.xls) usa leitura estruturada e é a opção recomendada para faturas abertas. PDF com texto usa leitura direta; PDF digitalizado e imagens usam OCR. Nada é gravado antes da sua confirmação.</div>
    <div id="pdfResult" style="margin-top:13px"></div>
  </div>`
 }
@@ -516,6 +517,34 @@ function parseStatementText(text,meta){
  }
  return rows.sort((x,y)=>y.data.localeCompare(x.data));
 }
+
+function monthNumPt(name){let a={janeiro:1,fevereiro:2,marco:3,"março":3,abril:4,maio:5,junho:6,julho:7,agosto:8,setembro:9,outubro:10,novembro:11,dezembro:12};return a[String(name||"").toLowerCase()]||0}
+function excelDateISO(v, fallbackYear){
+ if(v instanceof Date&&!isNaN(v))return `${v.getFullYear()}-${String(v.getMonth()+1).padStart(2,"0")}-${String(v.getDate()).padStart(2,"0")}`;
+ if(typeof v==="number"&&window.XLSX){let d=XLSX.SSF.parse_date_code(v);if(d)return `${d.y}-${String(d.m).padStart(2,"0")}-${String(d.d).padStart(2,"0")}`}
+ let t=String(v||"").trim(),m=t.match(/(\d{1,2})[\/\-](\d{1,2})(?:[\/\-](\d{2,4}))?/);if(!m)return "";let y=m[3]?+m[3]:fallbackYear;if(y<100)y+=2000;return `${y}-${String(+m[2]).padStart(2,"0")}-${String(+m[1]).padStart(2,"0")}`
+}
+async function extractExcelStatement(file){
+ if(!window.XLSX)throw new Error("Biblioteca de leitura do Excel não carregou. Verifique sua conexão e tente novamente.");
+ let wb=XLSX.read(await file.arrayBuffer(),{type:"array",cellDates:true});
+ let ws=wb.Sheets[wb.SheetNames[0]],aoa=XLSX.utils.sheet_to_json(ws,{header:1,defval:"",raw:true});
+ let flat=aoa.flat().map(v=>String(v??"").trim()).filter(Boolean),joined=flat.join(" | ");
+ let title=flat.find(x=>/Fatura\s+(?:Aberta|Fechada)\s*-?/i.test(x))||"";
+ let tm=title.match(/Fatura\s+(Aberta|Fechada)\s*-?\s*([A-Za-zÀ-ÿ]+)\/(\d{4})/i),status=tm?(tm[1].toLowerCase()==="aberta"?"Em aberto":"Fechada"):"Não identificado";
+ let sm=tm?monthNumPt(tm[2]):0,sy=tm?+tm[3]:new Date().getFullYear(),competence=sm?`${sy}-${String(sm).padStart(2,"0")}`:"";
+ let bank=/ITA[ÚU]|ITAUCARD|PERSONNALITE/i.test(joined)?"Itaú":autoBank(joined);
+ let cards=[...new Set(flat.map(x=>{let m=x.match(/(?:final\s*|\*{2,})(\d{4})/i);return m?m[1]:null}).filter(Boolean))];
+ let total=null;for(let r=0;r<aoa.length;r++){for(let c=0;c<aoa[r].length;c++){if(/Valor\s*\(parcial\)|Total da fatura/i.test(String(aoa[r][c]))){for(let rr=r;rr<Math.min(r+5,aoa.length);rr++)for(let cc=c;cc<Math.min(c+4,(aoa[rr]||[]).length);cc++){let v=aoa[rr][cc];if(typeof v==="number"&&v>0){total=v;break}}}}}
+ let header=-1,cols={};for(let r=0;r<aoa.length;r++){let row=aoa[r].map(x=>String(x).trim().toLowerCase());if(row.includes("data")&&row.includes("lançamento")&&row.includes("valor")){header=r;row.forEach((x,i)=>cols[x]=i);break}}
+ if(header<0)throw new Error("Não encontrei a tabela de lançamentos no Excel.");
+ let rows=[];for(let r=header+1;r<aoa.length;r++){let row=aoa[r],desc=String(row[cols["lançamento"]]||"").trim();if(!desc||/^subtotal|importante saber/i.test(desc))continue;let val=row[cols["valor"]];val=typeof val==="number"?val:brVal(val);if(!Number.isFinite(val)||val===0)continue;let data=excelDateISO(row[cols["data"]],sy);if(!data)continue;
+   let parc=String(row[cols["parcelamento"]]||"").trim(),pm=parc.match(/Parcela\s*(\d+)\s*de\s*(\d+)/i),pa=pm?+pm[1]:"",tp=pm?+pm[2]:"";
+   let u=desc.toUpperCase(),nature=/PAGAMENTO|PAGTO|PGTO/.test(u)?"Pagamento":(val<0||/ESTORNO|CR[EÉ]DITO|CANCELAMENTO/.test(u)?"Estorno/Crédito":"Compra");
+   rows.push({data,descricao:desc,valor:Math.abs(val),categoria:classifyImport(desc),cartao:bank,parcela_atual:pa,total_parcelas:tp,tipo:tp?"Parcela":"Variável",observacao:nature,competencia:competence||data.slice(0,7),natureza:nature});
+ }
+ return {meta:{bank,cards,statementDate:"",status,total,competence,source:"Excel"},rows};
+}
+
 async function extractPdfText(file){
  let pdfjs=await import('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.min.mjs');
  pdfjs.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs';
@@ -536,10 +565,12 @@ function renderStatementAnalysis(meta,allRows){
  renderPreview();
 }
 async function readStatement(){
- let f=$("pdfFile").files[0];if(!f)return alert("Selecione uma fatura em PDF, JPG, JPEG ou PNG.");
+ let f=$("pdfFile").files[0];if(!f)return alert("Selecione uma fatura em Excel, PDF, JPG, JPEG ou PNG.");
  $("pdfResult").innerHTML='<div class="msg">Analisando o arquivo...</div>';
  try{
-   let text="";if(f.type==="application/pdf"||f.name.toLowerCase().endsWith(".pdf"))text=await extractPdfText(f);else if(f.type.startsWith("image/")||/\.(png|jpe?g)$/i.test(f.name))text=await extractImageText(f);else throw new Error("Formato não suportado. Use PDF, JPG, JPEG ou PNG.");
+   let name=f.name.toLowerCase();
+   if(/\.xlsx?$/.test(name)){let out=await extractExcelStatement(f);if(!out.rows.length)throw new Error("O Excel foi aberto, mas não encontrei lançamentos válidos.");renderStatementAnalysis(out.meta,out.rows);return}
+   let text="";if(f.type==="application/pdf"||name.endsWith(".pdf"))text=await extractPdfText(f);else if(f.type.startsWith("image/")||/\.(png|jpe?g)$/i.test(name))text=await extractImageText(f);else throw new Error("Formato não suportado. Use Excel (.xlsx/.xls), PDF, JPG, JPEG ou PNG.");
    let meta=statementMeta(text),rows=parseStatementText(text,meta);
    if(!rows.length){$("pdfResult").innerHTML=`<div class="msg red"><b>Não consegui montar os lançamentos.</b><br>O arquivo foi lido, mas não encontrei transações suficientes. Nenhum dado foi gravado.</div>`;return}
    renderStatementAnalysis(meta,rows);
