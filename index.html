@@ -482,13 +482,15 @@ function brVal(s){let x=String(s||"").replace(/\s/g,"").replace(/R\$/gi,"").repl
 function autoBank(text){let u=String(text||"").toUpperCase();if(u.includes("BRADESCO"))return "Bradesco";if(u.includes("ITAÚ")||u.includes("ITAU")||u.includes("ITAUCARD"))return "Itaú";if(u.includes("NUBANK"))return "Nubank";if(u.includes("SANTANDER"))return "Santander";if(u.includes("BANCO DO BRASIL")||u.includes("OUROCARD"))return "Banco do Brasil";if(u.includes("C6 BANK"))return "C6 Bank";if(u.includes("BANCO INTER")||/\bINTER\b/.test(u))return "Inter";if(u.includes("CAIXA ECON")||u.includes("CARTÕES CAIXA")||u.includes("CARTOES CAIXA"))return "Caixa";return "Cartão não identificado"}
 function classifyImport(desc){let u=String(desc).toUpperCase();for(const [k,v] of Object.entries(D.rules||{}))if(u.includes(String(k).toUpperCase()))return v;return smartCategory(desc)}
 function statementMeta(text){
- let bank=autoBank(text), cards=[...String(text).matchAll(/XXXX[.\sX]*XXXX[.\sX]*XXXX[.\sX]*(\d{4})/gi)].map(m=>m[1]);
+ let bank=autoBank(text), cards=[...String(text).matchAll(/(?:XXXX[.\sX]*XXXX[.\sX]*XXXX[.\sX]*|\*{4}\s+\*{4}\s+\*{4}\s+|Final\s+)(\d{4})/gi)].map(m=>m[1]);
  cards=[...new Set(cards)];
- let dm=String(text).match(/Data:\s*(\d{2})\/(\d{2})\/(\d{4})/i);
+ let dm=String(text).match(/Data:?\s*(\d{2})\/(\d{2})\/(\d{4})/i);
  let statementDate=dm?`${dm[3]}-${dm[2]}-${dm[1]}`:"";
  let status=/EXTRATO\s*:\s*EM ABERTO|SITUA[CÇ][AÃ]O DO EXTRATO\s*:\s*EM ABERTO/i.test(text)?"Em aberto":(/EXTRATO FECHADO|FATURA FECHADA/i.test(text)?"Fechada":"Não identificado");
- let tm=String(text).match(/Total da Fatura em Real[\s\S]{0,60}?R\$\s*(-?[\d.]+,\d{2})/i)||String(text).match(/Total(?:\s+da)?\s+Fatura[\s\S]{0,40}?R\$\s*(-?[\d.]+,\d{2})/i);
- return {bank,cards,statementDate,status,total:tm?brVal(tm[1]):null}
+ let allTotals=[...String(text).matchAll(/(?:\(=\))?Total da fatura(?:\s*\([^)]*\))?:?\s*R\$?\s*(-?[\d.]+,\d{2})/gi)].map(m=>brVal(m[1]));
+ let tm=String(text).match(/Total da Fatura em Real[\s\S]{0,60}?R\$\s*(-?[\d.]+,\d{2})/i);
+ let total=allTotals.length?Math.max(...allTotals):(tm?brVal(tm[1]):null);
+ return {bank,cards,statementDate,status,total}
 }
 function normalizeStatementText(text){
  return String(text||"")
@@ -498,6 +500,46 @@ function normalizeStatementText(text){
    .replace(/[ \t]+/g," ")
    .trim();
 }
+
+function ptMonthNumber(v){
+ const m={JAN:1,FEV:2,MAR:3,ABR:4,MAI:5,JUN:6,JUL:7,AGO:8,SET:9,OUT:10,NOV:11,DEZ:12};
+ return m[String(v||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toUpperCase().slice(0,3)]||0;
+}
+function parseBradescoVisual(text,meta){
+ if(meta.bank!=="Bradesco"&&!/BRADESCO/i.test(text))return [];
+ const lines=String(text||"").split(/\n+/).map(x=>x.replace(/\s+/g," ").trim()).filter(Boolean);
+ const statementYear=meta.statementDate?+meta.statementDate.slice(0,4):(String(text).match(/Data\s+(?:da\s+)?(?:Fatura\s+)?(\d{2})\/(\d{2})\/(\d{4})/i)||[])[3]*1||new Date().getFullYear();
+ let currentDay=0,currentMonth=0,currentCard="",rows=[],seen=new Set(),pendingDay=0;
+ const ignore=/^(?:Data|Lançamentos|Moeda de Origem|Valor \(US\$\)|Cotação|Valor \(R\$\)|Resumo das Despesas|Taxas Mensais|Pagamento mínimo|Despesas no exterior|\(?[+=-]\)?Total da fatura|Total da fatura|Valor da fatura anterior|Forma de pagamento|Melhor data de compra|Cartao selecionado|Cartão selecionado|Validade|GUSTAVO NASCIMENTO|Fatura$|Real$|---PAGE---)/i;
+ for(let i=0;i<lines.length;i++){
+   let line=lines[i];
+   let cm=line.match(/Gastos referentes ao cartão:\s*Final\s*(\d{4})/i);if(cm){currentCard=cm[1];continue}
+   // Alguns PDFs trazem dia e mês na mesma linha; outros em duas linhas.
+   let dm=line.match(/^(\d{1,2})\s+(JAN|FEV|MAR|ABR|MAI|JUN|JUL|AGO|SET|OUT|NOV|DEZ)$/i);
+   if(dm){currentDay=+dm[1];currentMonth=ptMonthNumber(dm[2]);pendingDay=0;continue}
+   if(/^\d{1,2}$/.test(line)){pendingDay=+line;continue}
+   if(/^(JAN|FEV|MAR|ABR|MAI|JUN|JUL|AGO|SET|OUT|NOV|DEZ)$/i.test(line)&&pendingDay){currentDay=pendingDay;currentMonth=ptMonthNumber(line);pendingDay=0;continue}
+   // Quando PDF.js preserva colunas, a linha pode ser: 27 SET DESCRICAO 9,79
+   let inline=line.match(/^(\d{1,2})\s+(JAN|FEV|MAR|ABR|MAI|JUN|JUL|AGO|SET|OUT|NOV|DEZ)\s+(.+?)\s+(-?[\d.]+,\d{2})$/i);
+   let desc,val;
+   if(inline){currentDay=+inline[1];currentMonth=ptMonthNumber(inline[2]);desc=inline[3];val=brVal(inline[4])}
+   else{
+     let tr=line.match(/^(.+?)\s+(-?[\d.]+,\d{2})$/);
+     if(!tr||!currentDay||!currentMonth||ignore.test(line))continue;
+     desc=tr[1].trim();val=brVal(tr[2]);
+   }
+   if(!desc||!Number.isFinite(val)||val===0)continue;
+   if(/Valor da fatura|Saldo anterior|Pagamentos\/Créditos|Despesas locais|Pagamento mínimo|Taxa ao|Parcelamento de fatura|Rotativo|Saque|Crediário/i.test(desc))continue;
+   let u=desc.toUpperCase(),nature=/PAG BOLETO|PAGTO|PAGAMENTO|PGTO/.test(u)?"Pagamento":(/SALDO ANTERIOR/.test(u)?"Saldo anterior":(val<0||/ESTORNO|CR[EÉ]DITO|CANCELAMENTO/.test(u)?"Estorno/Crédito":"Compra"));
+   let pm=desc.match(/\(\s*(\d{1,2})\s*\/\s*(\d{1,2})\s*\)/)||desc.match(/(?:^|\s)(\d{1,2})\s*\/\s*(\d{1,2})(?:\s|$)/),pa="",tp="";
+   if(pm){pa=+pm[1];tp=+pm[2];if(tp<pa||tp>60){pa="";tp=""}}
+   let data=`${statementYear}-${String(currentMonth).padStart(2,"0")}-${String(currentDay).padStart(2,"0")}`,competencia=`${statementYear}-${String(currentMonth).padStart(2,"0")}`;
+   let key=[data,desc,val,currentCard].join("|");if(seen.has(key))continue;seen.add(key);
+   rows.push({data,descricao:desc,valor:Math.abs(val),categoria:classifyImport(desc),cartao:currentCard?`Bradesco •••• ${currentCard}`:"Bradesco",parcela_atual:pa,total_parcelas:tp,tipo:tp?"Parcela":"Variável",observacao:nature,competencia,natureza:nature});
+ }
+ return rows;
+}
+
 function parseStatementText(text,meta){
  let rows=[],seen=new Set(), s=normalizeStatementText(text);
  let fallbackYear=meta.statementDate?Number(meta.statementDate.slice(0,4)):new Date().getFullYear();
@@ -570,10 +612,22 @@ async function extractPdfText(file){
  let pdfjs=await import('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.min.mjs');
  pdfjs.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs';
  let buf=await file.arrayBuffer(),pdf=await pdfjs.getDocument({data:buf}).promise,text="";
- for(let i=1;i<=pdf.numPages;i++){let p=await pdf.getPage(i),c=await p.getTextContent();text+=c.items.map(x=>x.str).join(" ")+"\n"}
+ // Mantém as linhas visuais do PDF. Isso é essencial em faturas Bradesco,
+ // nas quais dia/mês, descrição e valor podem vir em objetos de texto separados.
+ for(let i=1;i<=pdf.numPages;i++){
+   let p=await pdf.getPage(i),c=await p.getTextContent(),lines=[];
+   for(const it of c.items){
+     const y=Math.round((it.transform?.[5]||0)*2)/2, x=it.transform?.[4]||0;
+     let line=lines.find(z=>Math.abs(z.y-y)<=2);
+     if(!line){line={y,items:[]};lines.push(line)}
+     line.items.push({x,str:String(it.str||"").trim()});
+   }
+   lines.sort((a,b)=>b.y-a.y);
+   text+=lines.map(l=>l.items.sort((a,b)=>a.x-b.x).map(q=>q.str).filter(Boolean).join(" ")).filter(Boolean).join("\n")+"\n---PAGE---\n";
+ }
  if(text.replace(/\s/g,"").length>80)return text;
  text="";
- for(let i=1;i<=pdf.numPages;i++){ $("pdfResult").innerHTML=`<div class="msg">PDF digitalizado: lendo página ${i} de ${pdf.numPages} por imagem...</div>`;let p=await pdf.getPage(i),vp=p.getViewport({scale:1.8}),cv=document.createElement('canvas');cv.width=vp.width;cv.height=vp.height;await p.render({canvasContext:cv.getContext('2d'),viewport:vp}).promise;let r=await Tesseract.recognize(cv,'por');text+=r.data.text+'\n'}
+ for(let i=1;i<=pdf.numPages;i++){ $("pdfResult").innerHTML=`<div class="msg">PDF digitalizado: lendo página ${i} de ${pdf.numPages} por imagem...</div>`;let p=await pdf.getPage(i),vp=p.getViewport({scale:1.8}),cv=document.createElement('canvas');cv.width=vp.width;cv.height=vp.height;await p.render({canvasContext:cv.getContext('2d'),viewport:vp}).promise;let r=await Tesseract.recognize(cv,'por');text+=r.data.text+'\n---PAGE---\n'}
  return text;
 }
 async function extractImageText(file){let r=await Tesseract.recognize(file,'por',{logger:m=>{if(m.status&&m.progress!==undefined)$("pdfResult").innerHTML=`<div class="msg">Leitura visual: ${m.status} ${Math.round(m.progress*100)}%</div>`}});return r.data.text}
@@ -592,7 +646,8 @@ async function readStatement(){
    let name=f.name.toLowerCase();
    if(/\.xlsx?$/.test(name)){let out=await extractExcelStatement(f);if(!out.rows.length)throw new Error("O Excel foi aberto, mas não encontrei lançamentos válidos.");renderStatementAnalysis(out.meta,out.rows);return}
    let text="";if(f.type==="application/pdf"||name.endsWith(".pdf"))text=await extractPdfText(f);else if(f.type.startsWith("image/")||/\.(png|jpe?g)$/i.test(name))text=await extractImageText(f);else throw new Error("Formato não suportado. Use Excel (.xlsx/.xls), PDF, JPG, JPEG ou PNG.");
-   let meta=statementMeta(text),rows=parseStatementText(text,meta);
+   let meta=statementMeta(text),rows=parseBradescoVisual(text,meta);
+   if(rows.filter(x=>x.natureza==="Compra").length<3)rows=parseStatementText(text,meta);
    if(!rows.length){$("pdfResult").innerHTML=`<div class="msg red"><b>Não consegui montar os lançamentos.</b><br>O arquivo foi lido, mas não encontrei transações suficientes. Nenhum dado foi gravado.</div>`;return}
    renderStatementAnalysis(meta,rows);
  }catch(e){$("pdfResult").innerHTML=`<div class="msg red"><b>Não foi possível ler o arquivo.</b><br>${esc(e.message||String(e))}<br>Nenhum dado foi gravado.</div>`}
