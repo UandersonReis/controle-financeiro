@@ -1,11 +1,9 @@
-# Meu Financeiro — Web V21
+# Meu Financeiro — Web V22
 
-Atualização de gestão de lançamentos:
-- seleção individual e seleção de todos os lançamentos;
-- exclusão dos selecionados;
-- limpeza total com dupla confirmação;
-- saldo identificado como “sem renda cadastrada” quando não há renda ativa;
-- classificação automática ampliada e botão Reclassificar;
-- mantém o importador de faturas da V20.
+Atualização do dashboard:
+- composição das despesas: gastos do mês, parcelas anteriores e contas fixas;
+- acompanhamento por cartão: fatura/compromissos, valor pago e falta pagar;
+- valor pago pode ser atualizado manualmente por mês e cartão;
+- mantém importação, projeções, classificação e gestão de lançamentos da V21.
 
-Substitua no GitHub os arquivos `index.html`, `manifest.webmanifest`, `sw.js` e `README.md`.
+Os dados permanecem somente no navegador (localStorage). Não publique faturas ou dados financeiros no GitHub.

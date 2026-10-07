@@ -137,6 +137,7 @@ const uid=()=>Math.random().toString(36).slice(2)+Date.now().toString(36);
 function normalize(){
  if(!D.categories)D.categories=["Saúde","Transporte","Alimentação/Despesas da Casa","Lazer","Vestuário","Educação","Moradia/Contas Fixas","Assinaturas","Compras/Casa","Outros"];
  if(!D.cards)D.cards=[];
+ if(!D.card_payments)D.card_payments={};
  if(!D.income_sources)D.income_sources=[{id:"r1",descricao:"Salário fixo",valor:num(D.salary||0),tipo:"Fixa",ativa:true}];
  if(!D.control_start)D.control_start="2026-09";
  D.fixed=(D.fixed||[]).map((x,i)=>({...x,id:x.id||("f"+i+"_"+uid()),ativa:x.ativa!==false}));
@@ -312,6 +313,37 @@ function riskLabel(r,income=1){
 }
 function topTransactions(tx,n=8){return [...tx].sort((a,b)=>num(b.valor)-num(a.valor)).slice(0,n)}
 
+function expenseComposition(C){
+ let installments=C.tx.filter(x=>x.projected || (num(x.total_parcelas)>0 && num(x.parcela_atual)>1));
+ let installmentIds=new Set(installments.map(x=>x.id));
+ let current=C.tx.filter(x=>!installmentIds.has(x.id));
+ return {
+   current:current.reduce((s,x)=>s+num(x.valor),0),
+   installments:installments.reduce((s,x)=>s+num(x.valor),0),
+   fixed:C.fixed,
+   total:C.total
+ };
+}
+function paymentKey(card,y,m){return `${y}-${String(m).padStart(2,"0")}|${card}`}
+function cardPaid(card,y,m){return num((D.card_payments||{})[paymentKey(card,y,m)]||0)}
+async function setCardPaid(card,y,m){
+ let current=cardPaid(card,y,m),v=prompt(`Quanto da fatura ${card} já foi pago em ${MONTHS[m-1]}/${y}?`,current.toFixed(2).replace(".",","));
+ if(v===null)return;v=Number(String(v).replace(/\./g,"").replace(",","."));if(!Number.isFinite(v)||v<0)return alert("Informe um valor válido.");
+ D.card_payments[paymentKey(card,y,m)]=v;await save();renderAll();
+}
+function cardStatementSummary(card,C){
+ let rows=C.tx.filter(x=>(x.cartao||"")===card), total=rows.reduce((s,x)=>s+num(x.valor),0), paid=cardPaid(card,selectedYear,selectedMonth);
+ return {total,paid,remaining:Math.max(0,total-paid)};
+}
+function compositionHtml(C){
+ let X=expenseComposition(C);
+ return `<div class="card" style="margin-top:13px"><div class="rowTitle"><div><h3>Composição das Despesas</h3><div class="sub">Entenda o que forma os ${money(C.total)} comprometidos em ${MONTHS[selectedMonth-1]}/${selectedYear}.</div></div><b>${money(C.total)}</b></div>
+ <div class="grid3" style="margin-top:12px">
+  <div class="msg"><div class="label">Gastos do mês</div><div class="value" style="font-size:21px">${money(X.current)}</div><div class="sub">Compras e lançamentos iniciados nesta competência</div></div>
+  <div class="msg"><div class="label">Parcelas anteriores</div><div class="value" style="font-size:21px">${money(X.installments)}</div><div class="sub">Parcelas antigas lançadas ou projetadas para o mês</div></div>
+  <div class="msg"><div class="label">Contas fixas</div><div class="value" style="font-size:21px">${money(X.fixed)}</div><div class="sub">Contas fixas ativas que impactam o mês</div></div>
+ </div></div>`;
+}
 function dashboardR(){
  let C=monthTotals(selectedYear,selectedMonth),[py,pm]=prevYM(selectedYear,selectedMonth),P=monthTotals(py,pm),r=C.income>0?C.total/C.income:0,hist=historySeries(selectedYear,selectedMonth,6);
  let cards=D.cards||[];
@@ -323,6 +355,7 @@ function dashboardR(){
   <div class="card metric"><div class="ico ib">◉</div><div><div class="label">${C.income>0?"Saldo do Mês":"Saldo sem renda cadastrada"}</div><div class="value">${money(C.balance)}</div><div class="sub">${C.income>0?"Receitas menos despesas":"Despesas registradas sem renda ativa no mês"}</div></div></div>
   <div class="card metric"><div class="ico iv">▥</div><div><div class="label">Risco Financeiro</div><div class="value ${C.income<=0?"warn":r>=.6?"warn":"pos"}">${riskLabel(r,C.income)}</div><div class="sub">${C.income>0?`${(r*100).toFixed(0)}% da renda comprometida`:"ative ao menos uma renda para calcular o risco"}</div></div></div>
  </div>
+ ${compositionHtml(C)}
  <div class="grid2">
   <div class="card"><div class="rowTitle"><h3>Gastos por Categoria</h3><span class="muted">${MONTHS[selectedMonth-1]}/${selectedYear}</span></div>
    ${Object.keys(C.cats).length?`<div class="donutWrap"><div class="donut" style="${donutStyle(C.cats)}"></div><div>${legendHtml(C.cats)}</div></div><div class="categoryBars">${categoryBars(C.cats)}</div>`:`<div class="empty">Nenhum lançamento neste mês. Importe uma fatura ou cadastre um gasto.</div>`}
@@ -331,7 +364,7 @@ function dashboardR(){
  </div>
  <div class="grid22">
   <div class="card"><h3>Faturas dos Cartões</h3>
-   ${cards.map(c=>{let used=C.cards[c.nome]||0,pct=c.limite?used/c.limite*100:0;return `<div class="cardAccount"><div class="rowTitle"><div class="bankHead">${bankIcon(c.nome)}<div><b>${c.nome}</b><div class="sub">Fecha dia ${c.fechamento} • Limite ${money(c.limite)}</div></div></div><b>${money(used)}</b></div><div class="progress"><i style="width:${Math.min(100,pct)}%"></i></div></div>`}).join("")}
+   ${cards.length?cards.map(c=>{let S=cardStatementSummary(c.nome,C),pct=c.limite?S.total/c.limite*100:0;return `<div class="cardAccount"><div class="rowTitle"><div class="bankHead">${bankIcon(c.nome)}<div><b>${c.nome}</b><div class="sub">Fecha dia ${c.fechamento}${c.vencimento?` • Vence dia ${c.vencimento}`:""} • Limite ${money(c.limite)}</div></div></div><b>${money(S.total)}</b></div><div class="progress"><i style="width:${Math.min(100,pct)}%"></i></div><div class="grid3" style="margin-top:10px"><div><div class="sub">Fatura/compromissos</div><b>${money(S.total)}</b></div><div><div class="sub">Pago</div><b class="pos">${money(S.paid)}</b></div><div><div class="sub">Falta pagar</div><b class="${S.remaining>0?'warn':'pos'}">${money(S.remaining)}</b></div></div><button class="btn ghost" style="margin-top:9px" onclick="setCardPaid('${c.nome.replace(/'/g,"\'")}',${selectedYear},${selectedMonth})">Atualizar valor pago</button></div>`}).join(""):`<div class="empty">Cadastre seus cartões em Configurações para acompanhar fatura, valor pago e saldo a pagar.</div>`}
    <button class="btn wide" onclick="showPage('faturas')">Importar fatura</button>
   </div>
   <div class="card"><div class="rowTitle"><h3>Principais Lançamentos</h3><button class="btn ghost" onclick="showPage('lancamentos')">Ver todos</button></div>${txTable(topTransactions(C.tx),false)}</div>
