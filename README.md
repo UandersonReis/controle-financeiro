@@ -1,12 +1,12 @@
-# Meu Financeiro — Web V18
+# Meu Financeiro — Web V19
 
-## Importador inteligente
-- banco identificado pelo conteúdo da fatura;
-- cartão/final identificado quando disponível;
-- mês/ano não precisam ser escolhidos previamente;
-- separação entre compras, pagamentos, saldo anterior e estornos/créditos;
-- reconhecimento de parcelas `n/total`;
-- PDF, imagem e OCR continuam no fluxo de importação;
-- revisão antes da gravação.
+Correção estrutural do importador:
+- sem seleção manual de banco/mês/ano;
+- identifica banco e finais de cartão no documento;
+- lê PDF textual e usa OCR em imagem/PDF digitalizado;
+- separa compra, pagamento, saldo anterior e estorno/crédito;
+- reconhece parcelamentos;
+- revisão obrigatória antes de importar;
+- pagamentos e saldo anterior não entram como despesas.
 
-O repositório contém somente a aplicação. Dados financeiros não devem ser gravados no GitHub.
+A aplicação continua usando armazenamento local até a etapa de login/nuvem.

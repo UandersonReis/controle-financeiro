@@ -84,20 +84,12 @@ table{width:100%;border-collapse:collapse;font-size:12px}th,td{padding:8px;borde
 }
 @media(max-width:420px){.cards4{grid-template-columns:1fr}}
 
-</style>
 
-<style>
-/* V18 — importação inteligente */
-#importBank,#importMonth,#importYear,
-label[for="importBank"],label[for="importMonth"],label[for="importYear"]{display:none!important}
-.v18-auto-box{background:#0c2638;border:1px solid #1c4b65;border-radius:12px;padding:12px 14px;margin:10px 0;color:#cfe8f7;font-size:13px}
-.v18-auto-box strong{color:#fff}
-.v18-review{margin-top:12px;border:1px solid #24445a;border-radius:12px;overflow:hidden}
-.v18-review table{width:100%;border-collapse:collapse;font-size:12px}
-.v18-review th,.v18-review td{padding:8px;border-bottom:1px solid #20384b;text-align:left}
-.v18-review th{color:#9fc8df}
+@media(max-width:700px){
+ #faturasPage .card>div[style*="grid-template-columns"]{grid-template-columns:1fr!important}
+ #faturasPage input[type=file],#faturasPage .btn{width:100%}
+}
 </style>
-
 </head>
 <body>
 <aside>
@@ -405,25 +397,52 @@ async function saveTxEdit(id){
 async function delTx(id){if(confirm("Excluir este lançamento?")){D.transactions=D.transactions.filter(x=>x.id!=id);await save();renderAll()}}
 
 function faturasR(){
- $("faturasPage").innerHTML=`<div class="topbar"><div><h1 class="sectionTitle">Importar Fatura</h1><div class="muted">Envie PDF, foto ou print. O sistema identifica automaticamente banco, cartão e lançamentos e sempre mostra uma revisão antes de importar.</div></div>${globalFilter()}</div>
- <div class="card"><div class="formgrid5"><select id="pdfBank"><option value="Automático">Banco automático</option>${(D.cards||[]).map(c=>`<option>${c.nome}</option>`).join("")}<option>Bradesco</option><option>Itaú</option><option>Nubank</option><option>Santander</option><option>Caixa</option><option>Banco do Brasil</option><option>Inter</option><option>Outro</option></select><input id="pdfCompetence" type="month" value="${selectedYear}-${String(selectedMonth).padStart(2,"0")}"><input id="pdfYear" type="number" value="${selectedYear}" min="2020" max="2100"><input id="pdfFile" type="file" accept=".pdf,.png,.jpg,.jpeg,image/png,image/jpeg,application/pdf"><button class="btn" onclick="readStatement()">Analisar fatura</button></div><div class="msg" style="margin-top:12px">PDF com texto: leitura direta. PDF digitalizado, JPG, JPEG ou PNG: leitura visual (OCR). Para OCR é necessário estar conectado à internet.</div><div id="pdfResult" style="margin-top:13px"></div></div>`
+ $("faturasPage").innerHTML=`<div class="topbar"><div><h1 class="sectionTitle">Importar Fatura</h1><div class="muted">Envie PDF, foto ou print. Banco, cartão e período são identificados a partir do próprio documento.</div></div>${globalFilter()}</div>
+ <div class="card">
+   <div style="display:grid;grid-template-columns:minmax(240px,1fr) 190px;gap:10px;align-items:center">
+     <input id="pdfFile" type="file" accept=".pdf,.png,.jpg,.jpeg,image/png,image/jpeg,application/pdf">
+     <button class="btn" onclick="readStatement()">Analisar fatura</button>
+   </div>
+   <div class="msg" style="margin-top:12px"><b>Identificação automática.</b> PDF com texto usa leitura direta. PDF digitalizado, JPG, JPEG ou PNG usa OCR. Nada é gravado antes da sua confirmação.</div>
+   <div id="pdfResult" style="margin-top:13px"></div>
+ </div>`
 }
-function brVal(s){return Number(String(s).replace(/\s/g,"").replace(/R\$/gi,"").replace(/\./g,"").replace(",","."))||0}
-function autoBank(text,selected){if(selected&&selected!=="Automático")return selected;let u=text.toUpperCase();if(u.includes("BRADESCO"))return "Bradesco";if(u.includes("ITAÚ")||u.includes("ITAU"))return "Itaú";if(u.includes("NUBANK"))return "Nubank";if(u.includes("SANTANDER"))return "Santander";if(u.includes("BANCO DO BRASIL"))return "Banco do Brasil";if(u.includes("INTER"))return "Inter";if(u.includes("CAIXA"))return "Caixa";return "Cartão"}
+function brVal(s){let x=String(s||"").replace(/\s/g,"").replace(/R\$/gi,"").replace(/\./g,"").replace(",",".");let n=Number(x);return Number.isFinite(n)?n:0}
+function autoBank(text){let u=String(text||"").toUpperCase();if(u.includes("BRADESCO"))return "Bradesco";if(u.includes("ITAÚ")||u.includes("ITAU")||u.includes("ITAUCARD"))return "Itaú";if(u.includes("NUBANK"))return "Nubank";if(u.includes("SANTANDER"))return "Santander";if(u.includes("BANCO DO BRASIL")||u.includes("OUROCARD"))return "Banco do Brasil";if(u.includes("C6 BANK"))return "C6 Bank";if(u.includes("BANCO INTER")||/\bINTER\b/.test(u))return "Inter";if(u.includes("CAIXA ECON")||u.includes("CARTÕES CAIXA")||u.includes("CARTOES CAIXA"))return "Caixa";return "Cartão não identificado"}
 function classifyImport(desc){let u=String(desc).toUpperCase();for(const [k,v] of Object.entries(D.rules||{}))if(u.includes(String(k).toUpperCase()))return v;return "Outros"}
-function parseStatementText(text,bank,year,competence){
- let rows=[], seen=new Set(); let lines=String(text).split(/\r?\n/).map(x=>x.replace(/\s+/g," ").trim()).filter(Boolean);
- const ignore=/PAGAMENTO|PAGTO|SALDO ANTERIOR|TOTAL DA FATURA|TOTAL FATURA|ENCARGOS|LIMITE DISPON[IÍ]VEL|VENCIMENTO|MELHOR DIA|ANUIDADE.*TOTAL/i;
+function statementMeta(text){
+ let bank=autoBank(text), cards=[...String(text).matchAll(/XXXX[.\sX]*XXXX[.\sX]*XXXX[.\sX]*(\d{4})/gi)].map(m=>m[1]);
+ cards=[...new Set(cards)];
+ let dm=String(text).match(/Data:\s*(\d{2})\/(\d{2})\/(\d{4})/i);
+ let statementDate=dm?`${dm[3]}-${dm[2]}-${dm[1]}`:"";
+ let status=/EXTRATO\s*:\s*EM ABERTO|SITUA[CÇ][AÃ]O DO EXTRATO\s*:\s*EM ABERTO/i.test(text)?"Em aberto":(/EXTRATO FECHADO|FATURA FECHADA/i.test(text)?"Fechada":"Não identificado");
+ let tm=String(text).match(/Total da Fatura em Real[\s\S]{0,60}?R\$\s*(-?[\d.]+,\d{2})/i)||String(text).match(/Total(?:\s+da)?\s+Fatura[\s\S]{0,40}?R\$\s*(-?[\d.]+,\d{2})/i);
+ return {bank,cards,statementDate,status,total:tm?brVal(tm[1]):null}
+}
+function normalizeStatementText(text){
+ return String(text||"").replace(/\r/g,"\n")
+   .replace(/(\d{1,2})\s*\n\s*\/\s*(\d{1,2})/g,"$1/$2")
+   .replace(/\n(?!(?:\s*\d{2}\/\d{2}\b)|(?:\s*XXXX)|(?:\s*\.\s*Total)|(?:\s*Data Histórico)|(?:\s*Aplicativo)|(?:\s*Situação)|(?:\s*UANDERSON))/g," ")
+   .replace(/[ \t]+/g," ");
+}
+function parseStatementText(text,meta){
+ let rows=[],seen=new Set(), norm=normalizeStatementText(text), lines=norm.split(/\n+/).map(x=>x.trim()).filter(Boolean);
+ let fallbackYear=meta.statementDate?Number(meta.statementDate.slice(0,4)):new Date().getFullYear();
  for(let line of lines){
-   if(ignore.test(line))continue;
-   let m=line.match(/(?:^|\s)(\d{2})[\/\-](\d{2})(?:[\/\-](\d{2,4}))?\s+(.+?)\s+(?:R\$\s*)?(-?[\d.]+,\d{2})(?:\s|$)/);
-   if(!m) m=line.match(/(?:^|\s)(\d{2})[\/\-](\d{2})(?:[\/\-](\d{2,4}))?\s+(.+?)\s+(-?\d+[.,]\d{2})(?:\s|$)/);
-   if(!m)continue;
-   let dd=Number(m[1]),mm=Number(m[2]),yy=m[3]?Number(m[3]):Number(year);if(yy<100)yy+=2000;if(dd<1||dd>31||mm<1||mm>12)continue;
-   let desc=m[4].trim().replace(/\s+(BRL|R\$)$/i,"").trim(), value=brVal(m[5]); if(!value||Math.abs(value)>1000000)continue;
-   let pm=desc.match(/(?:PARC(?:ELA)?\s*)?(\d{1,2})\s*[\/\-]\s*(\d{1,2})(?:\D|$)/i),pa="",tp="";if(pm){pa=Number(pm[1]);tp=Number(pm[2]);if(tp<pa||tp>60){pa="";tp=""}}
-   let key=`${yy}-${mm}-${dd}|${desc}|${value}`;if(seen.has(key))continue;seen.add(key);
-   rows.push({data:`${yy}-${String(mm).padStart(2,"0")}-${String(dd).padStart(2,"0")}`,descricao:desc,valor:value,categoria:classifyImport(desc),cartao:bank,parcela_atual:pa,total_parcelas:tp,tipo:tp?"Parcela":"Variável",observacao:"",competencia});
+   let m=line.match(/^(\d{2})\/(\d{2})(?:\/(\d{2,4}))?\s+(.+?)\s+BRL\s+(-?[\d.]+,\d{2})\s+0,00\s+R\$\s+0,00\s+(-?[\d.]+,\d{2})(?:\s|$)/i);
+   if(!m) m=line.match(/^(\d{2})\/(\d{2})(?:\/(\d{2,4}))?\s+(.+?)\s+(?:R\$\s*)?(-?[\d.]+,\d{2})(?:\s|$)/i);
+   if(!m) continue;
+   let dd=+m[1],mm=+m[2],yy=m[3]?+m[3]:fallbackYear;if(yy<100)yy+=2000;
+   let desc=m[4].trim().replace(/\s+BRL$/i,"").trim();
+   let value=brVal(m[6]!==undefined?m[6]:m[5]);
+   let u=desc.toUpperCase();
+   let nature=/PAGTO|PAGAMENTO|PGTO/.test(u)?"Pagamento":(/SALDO ANTERIOR/.test(u)?"Saldo anterior":(value<0||/ESTORNO|CR[EÉ]DITO|CANCELAMENTO/.test(u)?"Estorno/Crédito":"Compra"));
+   let pm=desc.match(/(?:^|\s)(\d{1,2})\s*\/\s*(\d{1,2})(?:\s|$)/),pa="",tp="";
+   if(pm){pa=+pm[1];tp=+pm[2];if(tp<pa||tp>60){pa="";tp=""}}
+   let data=`${yy}-${String(mm).padStart(2,"0")}-${String(dd).padStart(2,"0")}`;
+   let competence=`${yy}-${String(mm).padStart(2,"0")}`;
+   let key=[data,desc,value].join("|");if(seen.has(key))continue;seen.add(key);
+   rows.push({data,descricao:desc,valor:value,categoria:classifyImport(desc),cartao:meta.bank,parcela_atual:pa,total_parcelas:tp,tipo:tp?"Parcela":"Variável",observacao:nature,competencia:competence,natureza:nature});
  }
  return rows;
 }
@@ -433,22 +452,28 @@ async function extractPdfText(file){
  let buf=await file.arrayBuffer(),pdf=await pdfjs.getDocument({data:buf}).promise,text="";
  for(let i=1;i<=pdf.numPages;i++){let p=await pdf.getPage(i),c=await p.getTextContent();text+=c.items.map(x=>x.str).join(" ")+"\n"}
  if(text.replace(/\s/g,"").length>80)return text;
- // scanned PDF: render pages and OCR
  text="";
  for(let i=1;i<=pdf.numPages;i++){ $("pdfResult").innerHTML=`<div class="msg">PDF digitalizado: lendo página ${i} de ${pdf.numPages} por imagem...</div>`;let p=await pdf.getPage(i),vp=p.getViewport({scale:1.8}),cv=document.createElement('canvas');cv.width=vp.width;cv.height=vp.height;await p.render({canvasContext:cv.getContext('2d'),viewport:vp}).promise;let r=await Tesseract.recognize(cv,'por');text+=r.data.text+'\n'}
  return text;
 }
 async function extractImageText(file){let r=await Tesseract.recognize(file,'por',{logger:m=>{if(m.status&&m.progress!==undefined)$("pdfResult").innerHTML=`<div class="msg">Leitura visual: ${m.status} ${Math.round(m.progress*100)}%</div>`}});return r.data.text}
+function renderStatementAnalysis(meta,allRows){
+ let purchases=allRows.filter(x=>x.natureza==="Compra"),payments=allRows.filter(x=>x.natureza==="Pagamento"),credits=allRows.filter(x=>x.natureza==="Estorno/Crédito"),balances=allRows.filter(x=>x.natureza==="Saldo anterior"),parts=purchases.filter(x=>x.total_parcelas);
+ let warn=meta.status==="Em aberto"?`<div class="msg" style="margin-top:10px"><b>Atenção:</b> este extrato está em aberto e os valores ainda podem mudar até o fechamento.</div>`:"";
+ let totalTxt=meta.total===null?"Não identificado":money(meta.total);
+ $("pdfResult").innerHTML=`<div class="msg green"><b>Fatura lida com sucesso.</b><br>Banco: <b>${esc(meta.bank)}</b>${meta.cards.length?` · Cartão(ões) final: <b>${meta.cards.join(", ")}</b>`:""} · Situação: <b>${esc(meta.status)}</b> · Total informado: <b>${totalTxt}</b><br>${purchases.length} compras · ${parts.length} parceladas · ${payments.length} pagamentos · ${credits.length} estornos/créditos${balances.length?` · ${balances.length} saldo anterior`:""}.</div>${warn}<div class="msg" style="margin-top:10px">Pagamentos e saldo anterior foram identificados, mas <b>não serão lançados como despesas</b>. Estornos/créditos ficam fora da seleção automática para evitar distorções; você pode revisar abaixo.</div>`;
+ preview=purchases.map(x=>({...x,id:uid(),importar:true}));
+ renderPreview();
+}
 async function readStatement(){
  let f=$("pdfFile").files[0];if(!f)return alert("Selecione uma fatura em PDF, JPG, JPEG ou PNG.");
  $("pdfResult").innerHTML='<div class="msg">Analisando o arquivo...</div>';
  try{
-   let text=""; if(f.type==="application/pdf"||f.name.toLowerCase().endsWith('.pdf'))text=await extractPdfText(f);else if(f.type.startsWith('image/')||/\.(png|jpe?g)$/i.test(f.name))text=await extractImageText(f);else throw new Error("Formato não suportado. Use PDF, JPG, JPEG ou PNG.");
-   let bank=autoBank(text,$("pdfBank").value),comp=$("pdfCompetence").value,year=$("pdfYear").value;
-   let rows=parseStatementText(text,bank,year,comp);
-   if(!rows.length){$("pdfResult").innerHTML=`<div class="msg red"><b>Não consegui identificar lançamentos automaticamente.</b><br>O arquivo foi lido, mas o formato da fatura não correspondeu ao padrão de data + descrição + valor. Tente uma imagem mais nítida ou use o lançamento manual. Nenhum dado foi gravado.</div>`;return}
-   preview=rows.map(x=>({...x,id:uid(),importar:true}));renderPreview();
- }catch(e){$("pdfResult").innerHTML=`<div class="msg red"><b>Não foi possível ler o arquivo.</b><br>${esc(e.message||String(e))}<br>Se for foto/scan, confirme que o computador está conectado à internet.</div>`}
+   let text="";if(f.type==="application/pdf"||f.name.toLowerCase().endsWith(".pdf"))text=await extractPdfText(f);else if(f.type.startsWith("image/")||/\.(png|jpe?g)$/i.test(f.name))text=await extractImageText(f);else throw new Error("Formato não suportado. Use PDF, JPG, JPEG ou PNG.");
+   let meta=statementMeta(text),rows=parseStatementText(text,meta);
+   if(!rows.length){$("pdfResult").innerHTML=`<div class="msg red"><b>Não consegui montar os lançamentos.</b><br>O arquivo foi lido, mas não encontrei transações suficientes. Nenhum dado foi gravado.</div>`;return}
+   renderStatementAnalysis(meta,rows);
+ }catch(e){$("pdfResult").innerHTML=`<div class="msg red"><b>Não foi possível ler o arquivo.</b><br>${esc(e.message||String(e))}<br>Nenhum dado foi gravado.</div>`}
 }
 function renderPreview(){
  let box=$("pdfResult");if(!box)return;
@@ -556,138 +581,6 @@ if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
     navigator.serviceWorker.register('./sw.js').catch(err => console.warn('SW:', err));
   });
 }
-</script>
-
-
-<script>
-/* Controle Financeiro V18 — camada de interpretação flexível */
-(function(){
-  const moneyBR = s => {
-    if (s == null) return null;
-    let x = String(s).trim().replace(/R\$\s*/gi,'').replace(/\./g,'').replace(',','.');
-    const n = Number(x);
-    return Number.isFinite(n) ? n : null;
-  };
-  const norm = s => String(s||'').replace(/\u00a0/g,' ').replace(/[ \t]+/g,' ').trim();
-
-  function detectInstitution(text){
-    const t = text.toUpperCase();
-    if (/BRADESCO|BRADESCO CART[ÕO]ES/.test(t)) return {bank:'Bradesco', issuer:'Bradesco Cartões'};
-    if (/ITA[ÚU]|ITAUCARD/.test(t)) return {bank:'Itaú', issuer:'Itaú Cartões'};
-    if (/NUBANK/.test(t)) return {bank:'Nubank', issuer:'Nubank'};
-    if (/SANTANDER/.test(t)) return {bank:'Santander', issuer:'Santander'};
-    if (/BANCO DO BRASIL|OUROCARD/.test(t)) return {bank:'Banco do Brasil', issuer:'Ourocard'};
-    if (/CAIXA ECON[ÔO]MICA|CART[ÕO]ES CAIXA/.test(t)) return {bank:'Caixa', issuer:'Caixa Cartões'};
-    if (/INTER\b|BANCO INTER/.test(t)) return {bank:'Inter', issuer:'Inter'};
-    if (/C6 BANK/.test(t)) return {bank:'C6 Bank', issuer:'C6 Bank'};
-    return {bank:'Não identificado', issuer:''};
-  }
-
-  function detectCards(text){
-    const cards=[];
-    const re=/(?:final\s*)?(\d{4})|XXXX[.\sX]*XXXX[.\sX]*XXXX[.\sX]*(\d{4})/gi;
-    let m;
-    while((m=re.exec(text))){
-      const last=m[1]||m[2];
-      if(last && !cards.includes(last)) cards.push(last);
-    }
-    return cards.slice(0,8);
-  }
-
-  function detectStatus(text){
-    if (/EXTRATO\s*:\s*EM ABERTO|SITUA[CÇ][AÃ]O DO EXTRATO\s*:\s*EM ABERTO/i.test(text)) return 'Em aberto';
-    if (/FATURA FECHADA|EXTRATO FECHADO/i.test(text)) return 'Fechada';
-    return 'Não identificado';
-  }
-
-  function classifyType(desc, value){
-    const d=desc.toUpperCase();
-    if (/PAGTO|PAGAMENTO|PGTO|PAG\.?\s*FATURA|ANTECIPADO/.test(d)) return 'Pagamento';
-    if (/SALDO ANTERIOR/.test(d)) return 'Saldo anterior';
-    if (value < 0 || /ESTORNO|CR[EÉ]DITO|CANCELAMENTO/.test(d)) return 'Estorno/Crédito';
-    return 'Compra';
-  }
-
-  function parseInstallment(desc){
-    const m=desc.match(/(?:^|\s)(\d{1,2})\s*\/\s*(\d{1,2})(?:\s|$)/);
-    return m ? {current:+m[1], total:+m[2]} : null;
-  }
-
-  function parseTransactions(raw){
-    let text=String(raw||'').replace(/\r/g,'\n');
-    // Unebras comuns de PDF: mantém nova data como início de registro.
-    let lines=text.split(/\n+/).map(norm).filter(Boolean);
-    const records=[];
-    let buffer='';
-    const dateStart=/^(\d{2})\/(\d{2})(?:\/(\d{2,4}))?\s+/;
-
-    const flush=()=>{
-      if(!buffer) return;
-      const m=buffer.match(/^(\d{2}\/\d{2}(?:\/\d{2,4})?)\s+(.+?)\s+(?:BRL\s+)?(-?[\d.]+,\d{2})(?:\s+0,00\s+R\$\s*0,00\s+(-?[\d.]+,\d{2}))?\s*$/i);
-      if(m){
-        const value=moneyBR(m[4]||m[3]);
-        let desc=norm(m[2]).replace(/\s+BRL$/i,'');
-        const type=classifyType(desc,value);
-        records.push({date:m[1],description:desc,value,type,installment:parseInstallment(desc)});
-      }
-      buffer='';
-    };
-
-    for(const line of lines){
-      if(dateStart.test(line)){ flush(); buffer=line; }
-      else if(buffer){ buffer+=' '+line; }
-    }
-    flush();
-
-    // fallback linha-a-linha para formatos simples
-    if(!records.length){
-      const simple=/(\d{2}\/\d{2}(?:\/\d{2,4})?)\s+(.+?)\s+(-?R?\$?\s*[\d.]+,\d{2})(?=\s|$)/g;
-      let m;
-      while((m=simple.exec(text))){
-        const value=moneyBR(m[3]), desc=norm(m[2]);
-        records.push({date:m[1],description:desc,value,type:classifyType(desc,value),installment:parseInstallment(desc)});
-      }
-    }
-    return records;
-  }
-
-  function analyzeStatement(text){
-    const inst=detectInstitution(text);
-    const tx=parseTransactions(text);
-    const purchases=tx.filter(x=>x.type==='Compra');
-    const payments=tx.filter(x=>x.type==='Pagamento');
-    const credits=tx.filter(x=>x.type==='Estorno/Crédito');
-    const installments=purchases.filter(x=>x.installment);
-    const totalMatch=text.match(/Total da Fatura em Real[\s\S]{0,40}?R\$\s*(-?[\d.]+,\d{2})/i)
-      || text.match(/Total(?:\s+da)?\s+Fatura[\s\S]{0,30}?R\$\s*(-?[\d.]+,\d{2})/i);
-    return {
-      ...inst, cards:detectCards(text), status:detectStatus(text), transactions:tx,
-      purchases, payments, credits, installments,
-      statedTotal: totalMatch ? moneyBR(totalMatch[1]) : null
-    };
-  }
-
-  window.CF_V18 = {analyzeStatement, parseTransactions, detectInstitution};
-
-  function addAutoHint(){
-    const file=document.querySelector('input[type="file"]');
-    if(!file || document.getElementById('v18AutoHint')) return;
-    const box=document.createElement('div');
-    box.id='v18AutoHint'; box.className='v18-auto-box';
-    box.innerHTML='<strong>Identificação automática</strong><br>Não é necessário escolher banco, mês ou ano. O sistema identifica essas informações a partir da própria fatura e mostra tudo para conferência antes de importar.';
-    file.parentElement?.parentElement?.insertBefore(box,file.parentElement);
-  }
-
-  // Intercepta o texto extraído pelas rotinas existentes quando ele for exposto em textarea/pre/variável de revisão.
-  window.addEventListener('cf:statement-text', e=>{
-    const a=analyzeStatement(e.detail?.text||'');
-    window.__CF_LAST_ANALYSIS=a;
-    window.dispatchEvent(new CustomEvent('cf:statement-analysis',{detail:a}));
-  });
-
-  document.addEventListener('DOMContentLoaded', addAutoHint);
-  setTimeout(addAutoHint,800);
-})();
 </script>
 
 </body></html>
