@@ -1,0 +1,10 @@
+{
+  "name": "Meu Financeiro",
+  "short_name": "Financeiro",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#07111d",
+  "theme_color": "#07111d",
+  "description": "Controle financeiro pessoal com lançamentos, faturas, parcelas e relatórios."
+}
