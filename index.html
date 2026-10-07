@@ -320,7 +320,7 @@ function dashboardR(){
  <div class="cards4">
   <div class="card metric"><div class="ico ig">$</div><div><div class="label">Renda Mensal</div><div class="value">${money(C.income)}</div><div class="sub">${incomeBreakdown().map(x=>`${x.descricao}: ${money(x.valor)}`).join(" • ")||"sem renda ativa"}</div></div></div>
   <div class="card metric"><div class="ico ir">↗</div><div><div class="label">Despesas Totais</div><div class="value">${money(C.total)}</div>${compHtml(C.total,P.total,true)}</div></div>
-  <div class="card metric"><div class="ico ib">◉</div><div><div class="label">Saldo do Mês</div><div class="value">${money(C.balance)}</div>${compHtml(C.balance,P.balance,false)}</div></div>
+  <div class="card metric"><div class="ico ib">◉</div><div><div class="label">${C.income>0?"Saldo do Mês":"Saldo sem renda cadastrada"}</div><div class="value">${money(C.balance)}</div><div class="sub">${C.income>0?"Receitas menos despesas":"Despesas registradas sem renda ativa no mês"}</div></div></div>
   <div class="card metric"><div class="ico iv">▥</div><div><div class="label">Risco Financeiro</div><div class="value ${C.income<=0?"warn":r>=.6?"warn":"pos"}">${riskLabel(r,C.income)}</div><div class="sub">${C.income>0?`${(r*100).toFixed(0)}% da renda comprometida`:"ative ao menos uma renda para calcular o risco"}</div></div></div>
  </div>
  <div class="grid2">
@@ -360,8 +360,8 @@ function suggestions(C,P){
 
 function txTable(arr,actions=true){
  if(!arr.length)return `<div class="empty">Nenhum lançamento.</div>`;
- return `<div class="scroll"><table><thead><tr><th>Data</th><th>Competência</th><th>Descrição</th><th>Categoria</th><th>Pagamento</th><th>Parcela</th><th>Valor</th>${actions?"<th>Ações</th>":""}</tr></thead><tbody>
- ${arr.map(x=>`<tr><td>${formatDate(x.data)}</td><td><span class="competenceTag">${x.competencia||"—"}</span></td><td>${x.descricao}${x.projected?` <span class="smallBadge">projetada</span>`:""}</td><td><span class="tag">${x.categoria}</span></td><td>${x.cartao||"—"}</td><td>${x.total_parcelas?`${x.parcela_atual}/${x.total_parcelas}`:"—"}</td><td>${money(x.valor)}</td>${actions?`<td>${x.projected?`<span class="smallBadge">automática</span>`:`<div class="actions"><button class="btn ghost" onclick="editTx('${x.id}')">Editar</button><button class="btn red" onclick="delTx('${x.id}')">Excluir</button></div>`}</td>`:""}</tr>`).join("")}
+ return `<div class="scroll"><table><thead><tr>${actions?`<th><input type="checkbox" onchange="toggleAllTx(this.checked)"></th>`:""}<th>Data</th><th>Competência</th><th>Descrição</th><th>Categoria</th><th>Pagamento</th><th>Parcela</th><th>Valor</th>${actions?"<th>Ações</th>":""}</tr></thead><tbody>
+ ${arr.map(x=>`<tr>${actions?`<td><input class="txSelect" type="checkbox" value="${x.id}" onchange="updateBulkCount()"></td>`:""}<td>${formatDate(x.data)}</td><td><span class="competenceTag">${x.competencia||"—"}</span></td><td>${x.descricao}${x.projected?` <span class="smallBadge">projetada</span>`:""}</td><td><span class="tag">${x.categoria}</span></td><td>${x.cartao||"—"}</td><td>${x.total_parcelas?`${x.parcela_atual}/${x.total_parcelas}`:"—"}</td><td>${money(x.valor)}</td>${actions?`<td>${x.projected?`<span class="smallBadge">automática</span>`:`<div class="actions"><button class="btn ghost" onclick="editTx('${x.id}')">Editar</button><button class="btn red" onclick="delTx('${x.id}')">Excluir</button></div>`}</td>`:""}</tr>`).join("")}
  </tbody></table></div>`
 }
 function formatDate(s){let d=parseDate(s);return d?d.toLocaleDateString("pt-BR"):(s||"")}
@@ -380,7 +380,7 @@ function lancamentosR(){
  $("lancamentosPage").innerHTML=`<div class="topbar"><h1 class="sectionTitle">Lançamentos</h1>${globalFilter()}</div>
  <div class="card"><h3>Novo lançamento</h3><div class="formgrid"><input id="txDate" type="date" value="${selectedYear}-${String(selectedMonth).padStart(2,"0")}-01"><input id="txComp" type="month" value="${selectedYear}-${String(selectedMonth).padStart(2,"0")}"><input id="txDesc" placeholder="Descrição"><input id="txVal" type="number" step=".01" placeholder="Valor"><select id="txCat">${catOptions()}</select><select id="txCard" title="Forma de pagamento">${cardOptions()}</select></div>
  <div class="formgrid5" style="margin-top:9px"><select id="txType"><option>Variável</option><option>Parcela</option><option>Recorrente</option></select><input id="txPa" type="number" min="1" placeholder="Parcela atual"><input id="txTp" type="number" min="1" placeholder="Total parcelas"><input id="txObs" placeholder="Observação"><button class="btn green" onclick="addTx()">Adicionar</button></div></div>
- <div class="card" style="margin-top:13px"><div class="rowTitle"><h3>Lançamentos reais — ${MONTHS[selectedMonth-1]}/${selectedYear}</h3><b>${money(arr.reduce((s,x)=>s+num(x.valor),0))}</b></div>${txTable(arr)}</div>${proj.length?`<div class="card" style="margin-top:13px"><div class="rowTitle"><h3>Parcelas projetadas do mês</h3><b>${money(proj.reduce((s,x)=>s+num(x.valor),0))}</b></div>${txTable(proj,false)}</div>`:""}`;
+ <div class="card" style="margin-top:13px"><div class="rowTitle"><div><h3>Lançamentos reais — ${MONTHS[selectedMonth-1]}/${selectedYear}</h3><div class="sub" id="bulkCount">Nenhum lançamento selecionado</div></div><div class="actions"><b>${money(arr.reduce((s,x)=>s+num(x.valor),0))}</b><button class="btn ghost" onclick="reclassifyMonth()">Reclassificar</button><button class="btn red" onclick="deleteSelectedTx()">Excluir selecionados</button><button class="btn red" onclick="clearAllTx()">Limpar todos</button></div></div>${txTable(arr)}</div>${proj.length?`<div class="card" style="margin-top:13px"><div class="rowTitle"><h3>Parcelas projetadas do mês</h3><b>${money(proj.reduce((s,x)=>s+num(x.valor),0))}</b></div>${txTable(proj,false)}</div>`:""}`;
 }
 async function addTx(){
  let desc=$("txDesc").value.trim(),val=num($("txVal").value);if(!desc||!val)return alert("Informe descrição e valor.");
@@ -395,6 +395,22 @@ async function saveTxEdit(id){
  let x=D.transactions.find(t=>t.id==id);x.data=$("eDate").value;x.competencia=$("eComp").value;x.descricao=$("eDesc").value;x.valor=num($("eVal").value);x.categoria=$("eCat").value;x.cartao=$("eCard").value;x.tipo=$("eType").value;x.parcela_atual=$("ePa").value;x.total_parcelas=$("eTp").value;x.observacao=$("eObs").value;await save();closeModal();renderAll()
 }
 async function delTx(id){if(confirm("Excluir este lançamento?")){D.transactions=D.transactions.filter(x=>x.id!=id);await save();renderAll()}}
+function selectedTxIds(){return [...document.querySelectorAll(".txSelect:checked")].map(x=>x.value)}
+function toggleAllTx(v){document.querySelectorAll(".txSelect").forEach(x=>x.checked=v);updateBulkCount()}
+function updateBulkCount(){let n=selectedTxIds().length,el=$("bulkCount");if(el)el.textContent=n?`${n} lançamento(s) selecionado(s)`:"Nenhum lançamento selecionado"}
+async function deleteSelectedTx(){let ids=selectedTxIds();if(!ids.length)return alert("Selecione ao menos um lançamento para excluir.");if(!confirm(`Excluir ${ids.length} lançamento(s) selecionado(s)? Esta ação não pode ser desfeita.`))return;D.transactions=D.transactions.filter(x=>!ids.includes(String(x.id)));await save();renderAll()}
+async function clearAllTx(){let n=(D.transactions||[]).length;if(!n)return alert("Não há lançamentos para limpar.");if(!confirm(`ATENÇÃO: isso apagará TODOS os ${n} lançamentos salvos, inclusive de outros meses. Contas fixas e configurações serão mantidas. Deseja continuar?`))return;if(!confirm("Confirma novamente a exclusão de todos os lançamentos?"))return;D.transactions=[];await save();renderAll()}
+function smartCategory(desc){let u=String(desc||"").toUpperCase();let rules=[
+ ["Alimentação/Despesas da Casa",["ASSAI","ASSAÍ","GBARBOSA","G BARBOSA","MATEUS","SUPERMERC","ATACADISTA","MERCADO"]],
+ ["Saúde",["PAGUE MENOS","DROGASIL","FARMACIA","FARMÁCIA","DROGARIA","JIM.COM","TG15"]],
+ ["Transporte",["POSTO ","UBER","99APP","GAS ON LINE","COMBUST"]],
+ ["Lazer",["BAR ","CINEMA","CENTERPLEX","CLICKBUS","GUICHE WEB","TICKETMAKER","ESPETINHO"]],
+ ["Educação",["AUTOMATICAMEN","CURSO","UNIP","FACULDADE","ESCOLA","INGLES","INGLÊS"]],
+ ["Assinaturas",["SPOTIFY","APPLE.COM/BILL","IFood CLUB","IFOOD CLUB"]],
+ ["Vestuário",["SHEIN","HAVAN"]],
+ ["Compras/Casa",["BLU INSTITUI","SONOS","AVATIM","SHOPEE"]]
+ ];for(const [cat,keys] of rules)if(keys.some(k=>u.includes(k)))return cat;return "Outros"}
+async function reclassifyMonth(){let arr=txFor(selectedYear,selectedMonth),changed=0;for(const x of arr){let c=smartCategory(x.descricao);if(c!=="Outros"&&x.categoria!==c){x.categoria=c;changed++}}if(!changed)return alert("Nenhuma classificação automática nova foi encontrada neste mês.");await save();renderAll();alert(`${changed} lançamento(s) reclassificado(s).`)}
 
 function faturasR(){
  $("faturasPage").innerHTML=`<div class="topbar"><div><h1 class="sectionTitle">Importar Fatura</h1><div class="muted">Envie PDF, foto ou print. Banco, cartão e período são identificados a partir do próprio documento.</div></div>${globalFilter()}</div>
@@ -409,7 +425,7 @@ function faturasR(){
 }
 function brVal(s){let x=String(s||"").replace(/\s/g,"").replace(/R\$/gi,"").replace(/\./g,"").replace(",",".");let n=Number(x);return Number.isFinite(n)?n:0}
 function autoBank(text){let u=String(text||"").toUpperCase();if(u.includes("BRADESCO"))return "Bradesco";if(u.includes("ITAÚ")||u.includes("ITAU")||u.includes("ITAUCARD"))return "Itaú";if(u.includes("NUBANK"))return "Nubank";if(u.includes("SANTANDER"))return "Santander";if(u.includes("BANCO DO BRASIL")||u.includes("OUROCARD"))return "Banco do Brasil";if(u.includes("C6 BANK"))return "C6 Bank";if(u.includes("BANCO INTER")||/\bINTER\b/.test(u))return "Inter";if(u.includes("CAIXA ECON")||u.includes("CARTÕES CAIXA")||u.includes("CARTOES CAIXA"))return "Caixa";return "Cartão não identificado"}
-function classifyImport(desc){let u=String(desc).toUpperCase();for(const [k,v] of Object.entries(D.rules||{}))if(u.includes(String(k).toUpperCase()))return v;return "Outros"}
+function classifyImport(desc){let u=String(desc).toUpperCase();for(const [k,v] of Object.entries(D.rules||{}))if(u.includes(String(k).toUpperCase()))return v;return smartCategory(desc)}
 function statementMeta(text){
  let bank=autoBank(text), cards=[...String(text).matchAll(/XXXX[.\sX]*XXXX[.\sX]*XXXX[.\sX]*(\d{4})/gi)].map(m=>m[1]);
  cards=[...new Set(cards)];

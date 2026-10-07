@@ -1,12 +1,11 @@
-# Meu Financeiro — Web V20
+# Meu Financeiro — Web V21
 
-Correção da leitura completa de faturas:
-- varredura global das transações, mesmo quando o PDF junta várias compras na mesma linha;
-- suporte a descrições quebradas em múltiplas linhas;
-- banco e finais do cartão identificados automaticamente;
-- pagamentos, saldo anterior e estornos/créditos separados de compras;
-- parcelas reconhecidas;
-- competência derivada da data de cada compra;
-- revisão antes de gravar.
+Atualização de gestão de lançamentos:
+- seleção individual e seleção de todos os lançamentos;
+- exclusão dos selecionados;
+- limpeza total com dupla confirmação;
+- saldo identificado como “sem renda cadastrada” quando não há renda ativa;
+- classificação automática ampliada e botão Reclassificar;
+- mantém o importador de faturas da V20.
 
-Atualize os 4 arquivos no GitHub Pages e aguarde o novo deploy.
+Substitua no GitHub os arquivos `index.html`, `manifest.webmanifest`, `sw.js` e `README.md`.
